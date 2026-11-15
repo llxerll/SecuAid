@@ -98,6 +98,9 @@ incident-note/
 │   └─ scenarios/             # 가상 시나리오 3종(로그·메일·정답지)
 ├─ tests/                     # 단위 + 시나리오 E2E + HTTP E2E + 라이브 API
 ├─ docs/기획서_요약_1p.md      # 제출용 1~2페이지 기획서 원고
+├─ docs/기획서_v1.0.html       # 전체 기획서 v1.0 원본(HTML+CSS, 인쇄용)
+├─ docs/인시던트노트_기획서_v1.0.pdf  # 위 원본을 렌더한 제출용 PDF(12쪽)
+├─ scripts/make_pdf_v1.py      # HTML → A4 PDF 렌더러(Pretendard + WeasyPrint)
 ├─ docs/데모_시나리오_5분.md    # 5분 데모 영상 촬영 대본
 ├─ .env.example               # 키 이름만 있는 예시(값 없음)
 └─ .gitignore                 # .env, *.zip, *.pdf 차단
@@ -159,7 +162,8 @@ LINER_LIVE=1 python -m unittest tests.test_live_liner -v
 ## 9. 제출물 체크리스트 (11/25 23:59 KST 마감)
 
 > 저장소: https://github.com/llxerll/incident-note (제출 전까지 **private 전환 필요** — 현재 공개 상태)
-> 기획서 PDF: `projects/인시던트노트_기획서요약_v0.3.pdf` (워크스페이스 산출물, 저장소에는 원고·생성기 포함)
+> 기획서 PDF: 전체본 `docs/인시던트노트_기획서_v1.0.pdf`(12쪽, v0.3 실측 반영) · 요약본 `projects/인시던트노트_기획서요약_v0.3.pdf`
+> 기획서 재생성: `pip install weasyprint` → `python scripts/make_pdf_v1.py docs/기획서_v1.0.html docs/인시던트노트_기획서_v1.0.pdf` (Pretendard 폰트는 CDN에서 자동 준비)
 
 | 제출물 | 상태 |
 |---|---|
