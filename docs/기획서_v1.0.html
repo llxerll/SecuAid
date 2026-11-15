@@ -346,7 +346,7 @@ ul.pt li:before { content:"· "; color:#1668a8; font-weight:700; }
 </div>
 <div class="rule"></div>
 <table class="t dense">
-  <colgroup><col style="width:28mm"><col style="width:52mm"><col style="width:88mm"></colgroup>
+  <colgroup><col style="width:31mm"><col style="width:51mm"><col style="width:86mm"></colgroup>
   <tr><th>시나리오</th><th>무슨 일이 있었나</th><th>에이전트의 답 (v0.3 실측)</th></tr>
   <tr><td class="k">S1. 영업관리 계정 탈취 → 계좌 변경 사칭 <b>(메인)</b></td><td>M365 계정 AiTM 탈취 → 숨김 규칙 <span class="tl">'..'</span> → 거래처 3곳·직원 214명에게 계좌 변경 메일 → 거래처 전화로 인지 → 다음 날 아침 1,870만 원 송금</td><td>판별 <b>ATO(확인)</b>, 송금 확인으로 <b>P1</b>, 탐지 <b>25건</b>/의심 IP 2개, 신고 마감 11/20 09:05 · 통지 마감 11/22 09:05, 문서 10종, 전 구간 라이브 38.4초</td></tr>
   <tr><td class="k">S2. 유사 도메인 사칭 <b>(대조군)</b></td><td><span class="tl">hanbit-logistcs.example</span>(두 글자 다름)에서 우리 이름으로 계좌 변경 메일. 내부 로그인·발송 흔적 없음</td><td>판별 <b>유사 도메인(P4)</b>, 탐지 1건, 개인정보 신고·정보주체 통지 <b>비해당</b>, 침해사고 신고는 "정보통신서비스 제공자이지만 우리 시스템 침해 흔적 없음 — 별도 판단"으로 <b>검토</b>. 답은 차단·고객 경고·DMARC 점검</td></tr>
