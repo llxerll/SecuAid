@@ -1,0 +1,45 @@
+{
+  "meta": {
+    "version": "0.3.0",
+    "note": "자체 메일 서버(root 탈취·악성코드) 전용 규칙. 플레이북 범위 밖이므로 '초동 조치 + 전문 대응 호출' 판단까지만 한다.",
+    "timezone": "Linux secure 로그는 서버 로컬 시간(KST)으로 기록되는 경우가 많아 assume_utc=False로 해석하고 UTC를 병기한다."
+  },
+  "rules": [
+    {
+      "id": "SR_BRUTEFORCE",
+      "label": "SSH 무차별 대입 (10분 내 실패 5회 이상)",
+      "logic": "Failed password / Invalid user 라인을 IP별로 묶어 10분 창에서 5회 이상이면 high, 20회 이상이면 critical",
+      "severity": "high"
+    },
+    {
+      "id": "SR_ROOT_LOGIN",
+      "label": "root 원격 로그인 성공",
+      "logic": "Accepted password/publickey for root — 내부 IP는 무차별 대입 직후일 때 특히 위험",
+      "severity": "critical"
+    },
+    {
+      "id": "SR_PERSIST_SERVICE",
+      "label": "의심 서비스 설치·시작(원격제어 에이전트)",
+      "logic": "systemd Started + /usr/share 경로 또는 rmtagent 등 원격제어 이름",
+      "severity": "critical"
+    },
+    {
+      "id": "SR_LOG_TAMPER",
+      "label": "로그·흔적 삭제",
+      "logic": "truncate -s 0 / rm /var/log, .bash_history, history -c",
+      "severity": "critical"
+    },
+    {
+      "id": "SR_OUTBOUND_RDP",
+      "label": "내부 호스트에서 외부 3389 아웃바운드",
+      "logic": "kernel FW-LOG 에 DPT=3389 + 공인 IP 목적지",
+      "severity": "high"
+    },
+    {
+      "id": "FW_OUTBOUND_RDP",
+      "label": "방화벽: 외부 3389 아웃바운드 허용",
+      "logic": "dst_port=3389 + dst_ip 공인 + 세션 3회 이상 또는 송신 1MB 이상이면 critical",
+      "severity": "high"
+    }
+  ]
+}

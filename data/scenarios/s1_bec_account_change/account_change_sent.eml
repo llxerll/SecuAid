@@ -1,0 +1,28 @@
+Received: from AM9P190MB0001.eurprd19.prod.outlook.example (198.51.100.23)
+ by mx.daesung-pack.example; Wed, 18 Nov 2026 07:40:07 +0000
+Authentication-Results: mx.daesung-pack.example;
+ spf=pass smtp.mailfrom=hanbit-logis.example;
+ dkim=pass header.d=hanbit-logis.example;
+ dmarc=pass header.from=hanbit-logis.example
+From: 박서연 <sy.park@hanbit-logis.example>
+Reply-To: 박서연 <sy.park@hanbit-logis.example>
+Return-Path: <sy.park@hanbit-logis.example>
+To: acct@daesung-pack.example
+Subject: [대성포장 귀중] 당사 입금계좌 변경 안내
+Date: Wed, 18 Nov 2026 16:40:05 +0900
+Message-ID: <PAXP190MB7731.hanbit-logis.example>
+X-Originating-IP: [198.51.100.23]
+Content-Type: text/plain; charset="UTF-8"
+
+안녕하세요, 한빛물류 영업관리 박서연입니다.
+
+내부 회계감사 일정으로 당사 대금 수령 계좌가 이번 달부터 아래와 같이 변경되었습니다.
+11월 정산분(인보이스 HB-2611-0447)부터 변경 계좌로 송금 부탁드립니다.
+
+  은행: 가상은행 / 계좌: 999-000-123456 (예금주: 한빛로지스틱스)
+
+감사 기간 중이라 유선 통화가 어려우니 메일로 회신 주시면 감사하겠습니다.
+변경 공문은 첨부드립니다.
+
+박서연 드림
+(주)한빛물류 영업관리팀

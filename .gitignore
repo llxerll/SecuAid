@@ -1,0 +1,16 @@
+# 비밀값 — 절대 커밋하지 않는다
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 산출물
+out/
+*.zip
+*.pdf
+playbook_source/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

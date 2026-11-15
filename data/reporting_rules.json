@@ -1,0 +1,126 @@
+{
+  "meta": {
+    "name": "incident-note reporting rules",
+    "version": "0.2.0",
+    "verified_on": "2026-11-04",
+    "disclaimer": "법률 자문이 아님. 실행 시 Liner Search(search_legal)로 최신 개정 여부를 재확인하고, 최종 판단은 담당자·전문가가 한다.",
+    "principle": "기한·대상 판단은 이 규칙으로 결정적으로 계산한다. LLM은 해석과 문장 작성만 맡는다.",
+    "playbook_link": "플레이북 7.1(법규 검토), 7.2(누구에게 통지할까), 14.1(공식 창구). 법정 신고 외에 플레이북이 요구하는 운영상 연락도 함께 판단한다."
+  },
+  "inputs": {
+    "is_ict_service_provider": "정보통신서비스 제공자인가 (홈페이지·메일 등 서비스를 제공하는 사업자) — bool",
+    "intrusion": "침해 여부 — confirmed | suspected | none",
+    "personal_data_leak": "개인정보 유출 여부 — confirmed | suspected | none",
+    "affected_count": "유출(의심) 정보주체 수 — int | null(미상)",
+    "sensitive_or_unique_id": "민감정보·고유식별정보(주민번호·여권번호 등) 포함 — bool | null",
+    "external_illegal_access": "외부로부터의 불법 접근에 의한 유출 — bool",
+    "aware_at": "인지 시각 (ISO 8601, KST) — 관계자 누구든 처음 안 시점"
+  },
+  "rules": [
+    {
+      "id": "R_INTRUSION_REPORT",
+      "title": "침해사고 최초신고",
+      "to": "과학기술정보통신부 또는 KISA (보호나라 신고 창구, 118)",
+      "when": "is_ict_service_provider == true AND intrusion in [confirmed, suspected]",
+      "deadline_hours": 24,
+      "deadline_from": "aware_at",
+      "followup": "최초신고 후 추가 확인 사항은 확인 시점부터 24시간 이내 보완신고",
+      "template": "tpl_intrusion_report",
+      "legal_ref": "정보통신망법 제48조의3, 시행령 제58조의2",
+      "note": "원인 파악이 덜 됐어도 파악된 범위로 먼저 신고한다."
+    },
+    {
+      "id": "R_PI_LEAK_REPORT",
+      "title": "개인정보 유출 신고",
+      "to": "개인정보보호위원회 또는 KISA",
+      "when": "personal_data_leak in [confirmed, suspected] AND (affected_count >= 1000 OR sensitive_or_unique_id == true OR external_illegal_access == true)",
+      "deadline_hours": 72,
+      "deadline_from": "aware_at",
+      "followup": "항목·규모를 확인 못 했으면 확인된 내용으로 우선 신고, 추가 확인 시 즉시 보완",
+      "template": "tpl_pi_leak_report",
+      "required_fields": [
+        "정보주체에의 통지 여부",
+        "유출등이 된 개인정보의 항목 및 규모",
+        "유출등이 된 시점과 그 경위",
+        "피해 최소화 대책·조치 및 결과",
+        "정보주체가 할 수 있는 피해 최소화 방법 및 구제절차",
+        "담당부서·담당자 및 연락처"
+      ],
+      "legal_ref": "개인정보 보호법 제34조, 시행령 제40조"
+    },
+    {
+      "id": "R_PI_NOTICE",
+      "title": "정보주체 통지 (유출 확인 또는 유출 가능성)",
+      "to": "유출(의심) 정보주체 본인",
+      "when": "personal_data_leak in [confirmed, suspected]",
+      "deadline_hours": 72,
+      "deadline_from": "aware_at",
+      "followup": "가능성 통지 후 유출 여부가 확정되면 추가 통지, 유출이 아니면 그 사실도 즉시 통지",
+      "fallback": "연락처를 알 수 없는 등 정당한 사유가 있으면 홈페이지 30일 이상 게시로 갈음",
+      "template": "tpl_pi_notice",
+      "legal_ref": "개인정보 보호법 제34조, 시행령 제39조 (2026.9 개정 반영 — 재확인 필요)"
+    }
+  ],
+  "always": [
+    {
+      "id": "D_EXEC_REPORT",
+      "title": "경영진 보고서",
+      "template": "tpl_exec_report"
+    },
+    {
+      "id": "D_TIMELINE",
+      "title": "사고 타임라인",
+      "template": "tpl_timeline"
+    }
+  ],
+  "out_of_mvp_scope": [
+    "공공기관 국가정보원 신고 체계",
+    "신용정보법(1만 명 이상 신용정보 유출) — 금융권",
+    "보호나라·개인정보포털 자동 제출 (하지 않음: 초안까지만)",
+    "호스팅·자체 메일 서버의 서버 장악(root 탈취·악성코드) — 플레이북 범위 밖: 초동 조치 후 전문 대응 조직 호출로 안내"
+  ],
+  "operational_contacts": [
+    {
+      "id": "O_BANK",
+      "title": "은행 지급정지·회수(리콜) 요청",
+      "when": "송금 완료 또는 진행 중",
+      "deadline": "즉시 (0~10분 구간, 원인 분석보다 먼저)",
+      "how": "송금 은행 공식 대표번호. 의심 메일·청구서의 번호 금지. 해외송금이면 '사기 의심 송금의 회수(리콜) 요청'",
+      "template": "T4_bank",
+      "ref": "플레이북 6부, 12.1"
+    },
+    {
+      "id": "O_COUNTERPARTY_BANK",
+      "title": "거래처가 송금한 경우 — 거래처에 은행 연락 안내",
+      "when": "우리 계정 사칭 메일로 거래처가 송금",
+      "deadline": "즉시",
+      "how": "연락처 원장의 번호로 거래처에 전화, 거래처의 송금 은행에 지급정지 요청하도록 안내",
+      "template": "T2_deal_check",
+      "ref": "플레이북 7.4 ①"
+    },
+    {
+      "id": "O_POLICE",
+      "title": "경찰 사이버범죄 신고·상담",
+      "when": "금전 피해 발생 또는 사기 시도",
+      "deadline": "가능한 빨리 (은행 접수와 병행)",
+      "how": "경찰청 사이버범죄 신고시스템 ecrm.police.go.kr",
+      "ref": "플레이북 12.1, 14.1"
+    },
+    {
+      "id": "O_KISA_118",
+      "title": "KISA 118 상담",
+      "when": "침해 대응 지원이 필요할 때",
+      "deadline": "-",
+      "how": "118 상담 서비스",
+      "ref": "플레이북 14.2"
+    },
+    {
+      "id": "O_INSURER",
+      "title": "사이버 보험 최초 통지",
+      "when": "사이버 보험 가입",
+      "deadline": "약관의 통지 기한, 외부 업체 선임 전 사전 승인",
+      "template": "T5_insurer",
+      "ref": "플레이북 3.2 에스컬레이션, 7.4 ⑤"
+    }
+  ]
+}

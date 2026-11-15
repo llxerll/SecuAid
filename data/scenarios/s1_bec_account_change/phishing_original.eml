@@ -1,0 +1,18 @@
+Received: from mail.share-docs-portal.example (203.0.113.200)
+ by hanbit-logis.mail.protection.outlook.example; Mon, 16 Nov 2026 01:08:51 +0000
+Authentication-Results: spf=pass smtp.mailfrom=share-docs-portal.example;
+ dkim=none; dmarc=none header.from=share-docs-portal.example
+From: "문서 공유 알림" <noreply@share-docs-portal.example>
+To: sy.park@hanbit-logis.example
+Subject: [확인 요청] 대성포장님이 문서를 공유했습니다: 11월_정산내역.xlsx
+Date: Mon, 16 Nov 2026 10:08:49 +0900
+Message-ID: <a81f22@share-docs-portal.example>
+Content-Type: text/plain; charset="UTF-8"
+
+대성포장 님이 회원님과 문서를 공유했습니다.
+
+  11월_정산내역.xlsx
+
+[문서 열기]  hxxps://login-m365-secure.example/ofc?u=sy.park   (데모용 무력화 링크)
+
+이 링크는 48시간 후 만료됩니다.

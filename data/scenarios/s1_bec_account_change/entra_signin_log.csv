@@ -1,0 +1,15 @@
+CreatedDateTime(UTC),UserPrincipalName,AppDisplayName,ClientAppUsed,IPAddress,Location,DeviceDetail,Status,MfaDetail,CorrelationId
+2026-11-13T00:02:41Z,sy.park@hanbit-logis.example,Microsoft Outlook,Mobile Apps and Desktop clients,203.0.113.10,"Seoul, KR",Windows 11 / Outlook,Success,Previously satisfied,c-0001
+2026-11-14T23:58:10Z,sy.park@hanbit-logis.example,Microsoft Outlook,Mobile Apps and Desktop clients,203.0.113.10,"Seoul, KR",Windows 11 / Outlook,Success,Previously satisfied,c-0002
+2026-11-16T01:12:05Z,sy.park@hanbit-logis.example,OfficeHome,Browser,203.0.113.10,"Seoul, KR",Windows 11 / Edge,Success,MFA completed (Authenticator push),c-0003
+2026-11-16T01:14:22Z,sy.park@hanbit-logis.example,OfficeHome,Browser,198.51.100.23,"Amsterdam, NL",Linux / Chrome,Success,Previously satisfied (token),c-0003
+2026-11-16T01:19:47Z,sy.park@hanbit-logis.example,Office 365 Exchange Online,Browser,198.51.100.23,"Amsterdam, NL",Linux / Chrome,Success,Previously satisfied (token),c-0004
+2026-11-16T01:33:02Z,sy.park@hanbit-logis.example,My Signins,Browser,198.51.100.23,"Amsterdam, NL",Linux / Chrome,Success,Previously satisfied (token),c-0005
+2026-11-16T05:40:18Z,sy.park@hanbit-logis.example,Microsoft Outlook,Mobile Apps and Desktop clients,203.0.113.10,"Seoul, KR",Windows 11 / Outlook,Success,Previously satisfied,c-0006
+2026-11-17T13:05:51Z,sy.park@hanbit-logis.example,Office 365 Exchange Online,Browser,198.51.100.23,"Amsterdam, NL",Linux / Chrome,Success,Previously satisfied (token),c-0007
+2026-11-17T13:44:09Z,sy.park@hanbit-logis.example,Exchange ActiveSync,Exchange ActiveSync,198.51.100.88,"Frankfurt, DE",Unknown,Success,Not required (app password),c-0008
+2026-11-18T07:38:30Z,sy.park@hanbit-logis.example,Office 365 Exchange Online,Browser,198.51.100.23,"Amsterdam, NL",Linux / Chrome,Success,Previously satisfied (token),c-0009
+2026-11-18T07:51:12Z,sy.park@hanbit-logis.example,Office 365 Exchange Online,Browser,198.51.100.23,"Amsterdam, NL",Linux / Chrome,Success,Previously satisfied (token),c-0010
+2026-11-18T08:20:44Z,jh.lee@hanbit-logis.example,OfficeHome,Browser,198.51.100.23,"Amsterdam, NL",Linux / Chrome,Failure,Invalid password,c-0011
+2026-11-18T08:21:03Z,jh.lee@hanbit-logis.example,OfficeHome,Browser,198.51.100.23,"Amsterdam, NL",Linux / Chrome,Failure,Invalid password,c-0012
+2026-11-18T23:55:40Z,sy.park@hanbit-logis.example,Microsoft Outlook,Mobile Apps and Desktop clients,203.0.113.10,"Seoul, KR",Windows 11 / Outlook,Success,Previously satisfied,c-0013

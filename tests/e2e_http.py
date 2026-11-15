@@ -1,0 +1,114 @@
+"""웹 UI·API E2E — 실제 HTTP 서버를 띄워 요청으로 검증하고 종료한다.
+
+실행: python -m tests.e2e_http  (또는 python tests/e2e_http.py)
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import threading
+import time
+import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+os.environ.setdefault("LINER_OFFLINE", "1")
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+import app as app_module  # noqa: E402
+from werkzeug.serving import make_server  # noqa: E402
+
+PORT = int(os.environ.get("E2E_PORT", "8765"))
+BASE = f"http://127.0.0.1:{PORT}"
+
+
+def http(path: str, method: str = "GET", payload: dict | None = None):
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(BASE + path, data=data, method=method,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        body = resp.read().decode("utf-8")
+        return resp.status, body
+
+
+def http_json(path: str, method: str = "GET", payload: dict | None = None) -> dict:
+    status, body = http(path, method, payload)
+    assert status == 200, (status, body[:200])
+    return json.loads(body)
+
+
+class TestWebApp(unittest.TestCase):
+    server = None
+    thread = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = make_server("127.0.0.1", PORT, app_module.app, threaded=True)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        time.sleep(0.6)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=5)
+
+    def test_index_page(self):
+        status, body = http("/")
+        self.assertEqual(status, 200)
+        self.assertIn("인시던트 노트", body)
+
+    def test_static_assets(self):
+        for path in ("/static/app.js", "/static/style.css"):
+            status, body = http(path)
+            self.assertEqual(status, 200, path)
+            self.assertGreater(len(body), 500)
+
+    def test_html_ids_match_js(self):
+        """JS가 참조하는 DOM id가 HTML에 모두 존재해야 화면이 깨지지 않는다."""
+        _, html = http("/")
+        _, js = http("/static/app.js")
+        ids = set(re.findall(r'\$\("([A-Za-z0-9_]+)"\)', js))
+        missing = [i for i in ids if f'id="{i}"' not in html]
+        self.assertEqual(missing, [])
+
+    def test_health_and_scenarios(self):
+        data = http_json("/api/health")
+        self.assertTrue(data["ok"])
+        self.assertEqual(len(data["scenarios"]), 3)
+        self.assertIn("liner", data)
+
+    def test_session_and_message(self):
+        data = http_json("/api/session", "POST", {})
+        sid = data["session"]
+        board = http_json(f"/api/{sid}/message", "POST",
+                          {"text": "거래처에서 우리가 계좌를 바꿨냐고 전화가 왔어요. 우리는 바꾼 적이 없습니다. 방금 알았어요."})["board"]
+        self.assertIn("aware_at", board["case"])
+        self.assertTrue(board["reply"])
+
+    def test_scenario_run_and_docs_over_http(self):
+        sid = http_json("/api/session", "POST", {})["session"]
+        board = http_json(f"/api/{sid}/scenario/s1_bec_account_change", "POST", {})["board"]
+        self.assertEqual(board["severity"]["level"], "P1")
+        self.assertEqual(len(board["docs"]), 10)
+        status, md = http(f"/api/{sid}/doc/T1_customer")
+        self.assertEqual(status, 200)
+        self.assertIn("제목", md)
+        status, report = http(f"/api/{sid}/report")
+        self.assertEqual(status, 200)
+        self.assertIn("## 신고·통지 기한", report)
+
+    def test_unknown_session_returns_404(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            http("/api/nope/message", "POST", {"text": "hi"})
+        self.assertEqual(ctx.exception.code, 404)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

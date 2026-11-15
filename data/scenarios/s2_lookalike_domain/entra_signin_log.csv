@@ -1,0 +1,6 @@
+CreatedDateTime(UTC),UserPrincipalName,AppDisplayName,ClientAppUsed,IPAddress,Location,DeviceDetail,Status,MfaDetail,CorrelationId
+2026-11-16T00:12:41Z,sy.park@hanbit-logis.example,Microsoft Outlook,Mobile Apps and Desktop clients,203.0.113.10,"Seoul, KR",Windows 11 / Outlook,Success,Previously satisfied,c-1001
+2026-11-17T00:09:15Z,sy.park@hanbit-logis.example,Microsoft Outlook,Mobile Apps and Desktop clients,203.0.113.10,"Seoul, KR",Windows 11 / Outlook,Success,Previously satisfied,c-1002
+2026-11-18T00:15:02Z,sy.park@hanbit-logis.example,OfficeHome,Browser,203.0.113.10,"Seoul, KR",Windows 11 / Edge,Success,MFA completed (Authenticator push),c-1003
+2026-11-18T05:31:44Z,jh.lee@hanbit-logis.example,Microsoft Outlook,Mobile Apps and Desktop clients,203.0.113.10,"Seoul, KR",Windows 11 / Outlook,Success,Previously satisfied,c-1004
+2026-11-19T00:03:22Z,sy.park@hanbit-logis.example,Office 365 Exchange Online,Browser,203.0.113.10,"Seoul, KR",Windows 11 / Edge,Success,Previously satisfied,c-1005

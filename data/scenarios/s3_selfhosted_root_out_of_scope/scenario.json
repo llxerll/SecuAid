@@ -1,0 +1,23 @@
+{
+  "title": "S3. 메일 게이트웨이 root 탈취 + 로그 삭제 (플레이북 범위 밖)",
+  "summary": "자체 메일 서버 SSH 무차별 대입 후 root 장악, 원격제어 에이전트 설치, 로그 삭제. 아는 척하지 않고 초동 조치·신고 기한까지만 계산한 뒤 전문 대응 조직 호출을 권고해야 한다.",
+  "org_name": "(주)한빛물류",
+  "org_domains": ["hanbit-logis.example"],
+  "aware_at": "2026-11-19 08:50",
+  "logs": ["remote_syslog_secure.log", "firewall_alert.csv"],
+  "emls": [],
+  "facts": {
+    "org_country": "KR",
+    "org_size": 300,
+    "is_ict_service_provider": true,
+    "personal_data_leak": "suspected",
+    "affected_count": 4200,
+    "sensitive_or_unique_id": false,
+    "insurance": false
+  },
+  "demo_inputs": [
+    "방화벽에서 메일 서버가 외부 3389로 통신한다는 알림이 왔어요. 방금 확인했습니다.",
+    "@file:remote_syslog_secure.log\n@file:firewall_alert.csv",
+    "고객 문의 메일이 4,200명분 정도 있고 주민번호는 없습니다. 서버를 재부팅해도 될까요?"
+  ]
+}

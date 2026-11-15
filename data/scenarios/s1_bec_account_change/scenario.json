@@ -1,0 +1,27 @@
+{
+  "title": "S1. 영업관리 계정 탈취 → 거래처 계좌 변경 사칭 (메인 데모)",
+  "summary": "M365 계정 AiTM 탈취 → 숨김 규칙 → 거래처 3곳에 계좌 변경 요청 발송 → 거래처 전화로 인지. 송금 확인 시 P1로 격상.",
+  "org_name": "(주)한빛물류",
+  "org_domains": ["hanbit-logis.example"],
+  "aware_at": "2026-11-19 09:05",
+  "logs": ["entra_signin_log.csv", "audit_log.csv", "message_trace.csv"],
+  "emls": ["account_change_sent.eml", "phishing_original.eml"],
+  "facts": {
+    "org_country": "KR",
+    "org_size": 38,
+    "is_ict_service_provider": true,
+    "account": "sy.park@hanbit-logis.example",
+    "pi_data_types": "고객 배송 문의(이름·연락처·주소, 주민번호 없음)",
+    "personal_data_leak": "suspected",
+    "affected_count": 1300,
+    "sensitive_or_unique_id": false,
+    "insurance": false
+  },
+  "demo_inputs": [
+    "거래처 대성포장에서 우리가 계좌를 바꿨냐고 전화가 왔어요. 우리는 바꾼 적이 없습니다. 방금 알았어요.",
+    "@file:account_change_sent.eml",
+    "@file:entra_signin_log.csv\n@file:audit_log.csv\n@file:message_trace.csv",
+    "방금 미래상사에서 전화가 왔는데, 오늘 아침에 이미 새 계좌로 1,870만 원을 송금했다고 합니다.",
+    "사서함에 고객 배송 문의가 1,300명분 정도 있어요. 이름·연락처·주소이고 주민번호는 없습니다. 저희는 홈페이지와 고객 문의 메일을 운영합니다."
+  ]
+}

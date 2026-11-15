@@ -1,0 +1,13 @@
+CreationDate(UTC),UserId,Operation,ClientIP,ObjectId,Parameters
+2026-11-16T01:21:37Z,sy.park@hanbit-logis.example,New-InboxRule,198.51.100.23,sy.park\..,"Name=.. ; SubjectOrBodyContainsWords=계좌;송금;입금;invoice;payment;bank ; MoveToFolder=RSS 피드 ; MarkAsRead=True ; StopProcessingRules=True"
+2026-11-16T01:24:10Z,sy.park@hanbit-logis.example,MailItemsAccessed,198.51.100.23,sy.park,"AccessType=Bind ; ItemCount=148 ; Folder=받은 편지함"
+2026-11-16T01:27:55Z,sy.park@hanbit-logis.example,SearchQueryInitiatedExchange,198.51.100.23,sy.park,"QueryText=대금 지급일"
+2026-11-16T01:29:02Z,sy.park@hanbit-logis.example,SearchQueryInitiatedExchange,198.51.100.23,sy.park,"QueryText=계좌"
+2026-11-16T01:33:40Z,sy.park@hanbit-logis.example,Add app password,198.51.100.23,sy.park,"Target=sy.park@hanbit-logis.example"
+2026-11-17T13:07:12Z,sy.park@hanbit-logis.example,MailItemsAccessed,198.51.100.23,sy.park,"AccessType=Sync ; ItemCount=2310 ; Folder=받은 편지함;고객문의"
+2026-11-17T13:09:48Z,sy.park@hanbit-logis.example,SearchQueryInitiatedExchange,198.51.100.23,sy.park,"QueryText=대성포장"
+2026-11-18T07:40:05Z,sy.park@hanbit-logis.example,Send,198.51.100.23,sy.park,"Subject=[대성포장 귀중] 당사 입금계좌 변경 안내 ; Recipients=1"
+2026-11-18T07:40:41Z,sy.park@hanbit-logis.example,Send,198.51.100.23,sy.park,"Subject=[그린로지스 귀중] 당사 입금계좌 변경 안내 ; Recipients=1"
+2026-11-18T07:41:13Z,sy.park@hanbit-logis.example,Send,198.51.100.23,sy.park,"Subject=[미래상사 귀중] 당사 입금계좌 변경 안내 ; Recipients=1"
+2026-11-18T07:52:30Z,sy.park@hanbit-logis.example,Send,198.51.100.23,sy.park,"Subject=[한빛물류] 11월 배송 정산 문서 공유 ; Recipients=214"
+2026-11-18T07:58:02Z,sy.park@hanbit-logis.example,SoftDelete,198.51.100.23,sy.park,"Folder=보낸 편지함 ; ItemCount=4"

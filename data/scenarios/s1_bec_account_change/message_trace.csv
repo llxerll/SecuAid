@@ -1,0 +1,5 @@
+Received(UTC),SenderAddress,RecipientAddress,Subject,Status,FromIP,Size
+2026-11-18T07:40:05Z,sy.park@hanbit-logis.example,acct@daesung-pack.example,[대성포장 귀중] 당사 입금계좌 변경 안내,Delivered,198.51.100.23,184212
+2026-11-18T07:40:41Z,sy.park@hanbit-logis.example,finance@greenlogis.example,[그린로지스 귀중] 당사 입금계좌 변경 안내,Delivered,198.51.100.23,184190
+2026-11-18T07:41:13Z,sy.park@hanbit-logis.example,ap@mirae-trade.example,[미래상사 귀중] 당사 입금계좌 변경 안내,Delivered,198.51.100.23,184233
+2026-11-18T07:52:30Z,sy.park@hanbit-logis.example,(214 recipients — see expanded export),[한빛물류] 11월 배송 정산 문서 공유,Delivered (201) / Failed (13),198.51.100.23,9811

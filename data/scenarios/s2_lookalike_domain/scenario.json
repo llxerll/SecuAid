@@ -1,0 +1,23 @@
+{
+  "title": "S2. 유사 도메인 사칭 (계정 침해 아님 판별)",
+  "summary": "우리 도메인과 두 글자 다른 도메인에서 계좌 변경·견적 메일 발송. 내부 로그인·발송 흔적은 없음 → P4, 신고 대상 아님으로 판별해야 한다.",
+  "org_name": "(주)한빛물류",
+  "org_domains": ["hanbit-logis.example"],
+  "aware_at": "2026-11-19 14:20",
+  "logs": ["entra_signin_log.csv", "audit_log.csv"],
+  "emls": ["lookalike_account_change.eml"],
+  "facts": {
+    "org_country": "KR",
+    "org_size": 38,
+    "is_ict_service_provider": true,
+    "personal_data_leak": "none",
+    "sensitive_or_unique_id": false,
+    "insurance": false
+  },
+  "demo_inputs": [
+    "고객사에서 저희 도메인과 비슷한 주소로 계좌 변경 메일을 받았다고 전달해 왔습니다. 방금 확인했어요.",
+    "@file:lookalike_account_change.eml",
+    "@file:entra_signin_log.csv\n@file:audit_log.csv",
+    "저희 계정에서 나간 흔적은 없는 것 같습니다. 이거 우리가 신고해야 하나요?"
+  ]
+}

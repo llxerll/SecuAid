@@ -1,0 +1,5 @@
+CreationDate(UTC),UserId,Operation,ClientIP,ObjectId,Parameters
+2026-11-18T00:20:10Z,sy.park@hanbit-logis.example,Set-Mailbox,203.0.113.10,sy.park,"QuotaWarningThreshold=90"
+2026-11-18T01:02:33Z,sy.park@hanbit-logis.example,MailItemsAccessed,203.0.113.10,sy.park,"AccessType=Bind ; ItemCount=42 ; Folder=받은 편지함"
+2026-11-18T01:10:05Z,sy.park@hanbit-logis.example,Send,203.0.113.10,sy.park,"Subject=[한빛물류] 주간 납기 안내 ; Recipients=6"
+2026-11-19T00:05:41Z,jh.lee@hanbit-logis.example,FileAccessed,203.0.113.10,sharepoint.site,"File=11월_정산내역.xlsx"
