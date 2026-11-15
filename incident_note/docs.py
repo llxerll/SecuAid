@@ -55,16 +55,23 @@ def _mask_account(value: str) -> str:
     return digits[:3] + "-" + "*" * (len(digits) - 5) + digits[-2:]
 
 
+PRESERVE_LABELS = {"[중요]", "[긴급]"}
+
+
 def _fill(template: str, mapping: dict[str, str]) -> tuple[str, list[str]]:
-    """템플릿 빈칸을 채우고, 남은 빈칸을 미확인으로 바꾼다."""
+    """템플릿 빈칸을 채우고, 템플릿에 남은 빈칸만 미확인으로 바꾼다.
+
+    치환값 안에 들어 있는 대괄호(예: 실제 메일 제목 '[대성포장 귀중] ...')를
+    빈칸으로 오인해 지우지 않도록, 빈칸 목록은 치환 전 템플릿에서 먼저 구한다.
+    """
+    placeholders = list(dict.fromkeys(re.findall(r"\[[^\]\n]{0,40}\]", template)))
+    unknown = [p for p in placeholders if p not in mapping and p not in PRESERVE_LABELS]
     out = template
     for k, v in mapping.items():
         out = out.replace(k, v)
-    left = re.findall(r"\[[^\]\n]{0,40}\]", out)
-    unknowns = [x for x in dict.fromkeys(left)]
-    for x in unknowns:
-        out = out.replace(x, UNKNOWN)
-    return out, [u for u in unknowns]
+    for p in unknown:
+        out = out.replace(p, UNKNOWN)
+    return out, unknown
 
 
 def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[str, str]:
@@ -102,6 +109,9 @@ def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[st
         "[제목 또는 내용]": subject,
         "[제목/발신자/시간대]": f"{subject} / {from_domain} / {window}",
         "[발송 시간대]": window,
+        "[시간대]": window,
+        "[보험사]": UNKNOWN,
+        "[송금 여부·금액, 미확인 시 미확인]": _transfer_line(case),
         "[식별 정보]": subject,
         "[다음 안내 시점]": UNKNOWN,
         "[전화번호 / 별도 이메일]": UNKNOWN,
@@ -142,6 +152,12 @@ def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[st
         "[날짜와 시간대]": aware,
         "[회사/담당자]": f"{org} 사건 대응 담당",
     }
+
+
+def _transfer_line(case: Case) -> str:
+    status = {"done": "송금 완료", "pending": "송금 진행·예정", "none": "송금 없음"}.get(case.value("transfer_status"), "송금 여부 미확인")
+    amount = case.value("transfer_amount")
+    return f"{status}" + (f" · {amount}" if amount else "")
 
 
 def _send_window(det: DetectionResult) -> str:
