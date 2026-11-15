@@ -27,13 +27,13 @@ PORT = int(os.environ.get("E2E_PORT", "8765"))
 BASE = f"http://127.0.0.1:{PORT}"
 
 
-def http(path: str, method: str = "GET", payload: dict | None = None):
+def http(path: str, method: str = "GET", payload: dict | None = None, raw: bool = False):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(BASE + path, data=data, method=method,
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as resp:
-        body = resp.read().decode("utf-8")
-        return resp.status, body
+        body = resp.read()
+        return resp.status, (body if raw else body.decode("utf-8"))
 
 
 def http_json(path: str, method: str = "GET", payload: dict | None = None) -> dict:
@@ -103,6 +103,17 @@ class TestWebApp(unittest.TestCase):
         status, report = http(f"/api/{sid}/report")
         self.assertEqual(status, 200)
         self.assertIn("## 신고·통지 기한", report)
+
+    def test_docx_export_over_http(self):
+        sid = http_json("/api/session", "POST", {})["session"]
+        http_json(f"/api/{sid}/scenario/s1_bec_account_change", "POST", {})
+        try:
+            import docx  # noqa: F401
+        except Exception:
+            self.skipTest("python-docx 없음")
+        status, body = http(f"/api/{sid}/doc/T1_customer.docx", raw=True)
+        self.assertEqual(status, 200)
+        self.assertTrue(body.startswith(b"PK"))
 
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:

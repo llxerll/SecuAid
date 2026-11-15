@@ -133,7 +133,7 @@ LINER_LIVE=1 python -m unittest tests.test_live_liner -v
 
 검증 항목(요약): 시간대 변환(naive를 서버 로컬로 오인하지 않음), PII 마스킹 왕복, 로그 형식 자동 판별·다중 붙여넣기, 규칙 14+6종 탐지와 오탐 방지(정상 발송·`Set-Mailbox` 오탐), 판별 3분류, 심각도 P2→P1 격상, 기한 계산(11/20·11/22 09:05), 문서에 링크·빈칸 없음, 화면 DOM id 정합, 시나리오 3종 기대값.
 
-**v0.3 실측:** `73 tests OK` (단위·시나리오) + `7 tests OK` (HTTP E2E) + `4 tests OK` (Liner 라이브).
+**v0.3 실측:** `73 tests OK` (단위·시나리오) + `8 tests OK` (HTTP E2E) + `4 tests OK` (Liner 라이브).
 
 ---
 
@@ -157,6 +157,9 @@ LINER_LIVE=1 python -m unittest tests.test_live_liner -v
 ---
 
 ## 9. 제출물 체크리스트 (11/25 23:59 KST 마감)
+
+> 저장소: https://github.com/llxerll/incident-note (제출 전까지 **private 전환 필요** — 현재 공개 상태)
+> 기획서 PDF: `projects/인시던트노트_기획서요약_v0.3.pdf` (워크스페이스 산출물, 저장소에는 원고·생성기 포함)
 
 | 제출물 | 상태 |
 |---|---|
@@ -183,7 +186,7 @@ LINER_LIVE=1 python -m unittest tests.test_live_liner -v
 10. 문서 생성(통지 6종 + 신고서 3종 + 경영진 보고 + 타임라인), 발송 전 통과표.
 11. 웹 UI(사건 보드: 지금 할 일·기한·타임라인·판정·하지 말 것·문서).
 12. Liner API 3종 실제 연동(키 없으면 자동 폴백), 법령 재확인·출처 카드.
-13. 테스트 84개(단위·시나리오·HTTP E2E·라이브) 및 시나리오 S2(대조군) 추가.
+13. 테스트 85개(단위·시나리오 73 + HTTP E2E 8 + 라이브 4) 및 시나리오 S2(대조군) 추가.
 14. README·`.env.example`·1p 기획서·5분 데모 대본.
 
 **알려진 차이**

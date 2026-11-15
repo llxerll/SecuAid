@@ -137,8 +137,7 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
             push(a, _who_for(a), card.get("ref", {}).get("s", [""])[0], "15분", 4 + i // 3)
         for a in card.get("investigate", []):
             push(a, "IT/관리자", card.get("ref", {}).get("s", [""])[0], "조사", 8)
-        for a in card.get("notify", []):
-            push(a, "사건 책임자", card.get("ref", {}).get("s", [""])[0], "통지", 7)
+        # 통지·종결 항목은 문서 초안과 통과표에서 다루므로 '지금 할 일'에는 넣지 않는다.
 
     # 개인정보 판단
     if case.value("personal_data_leak") in ("suspected", "confirmed"):
@@ -149,7 +148,7 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
         push("초동 조치(차단·보존·보고) 후 전문 대응 조직 즉시 호출 — 서버 자체 장악은 이 플레이북 범위 밖", "대표", "2.7", "지금", 1)
 
     actions.sort(key=lambda a: a["priority"])
-    return actions[:14]
+    return actions[:12]
 
 
 def _who_for(action: str) -> str:
