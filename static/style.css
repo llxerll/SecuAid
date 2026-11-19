@@ -210,3 +210,33 @@ select { min-width: 260px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .modal-head > div { display: flex; gap: 8px; align-items: center; }
 .modal pre { margin: 0; padding: 16px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; line-height: 1.6; }
+
+/* v0.4 — 단계별 재생 · 심각도 변화 · 문서 내보내기 */
+.sev-trail { display: flex; gap: 4px; align-items: center; margin-top: 4px; font-size: 11px; }
+.sev-trail .trail { padding: 1px 7px; border-radius: 999px; font-weight: 800; border: 1px solid transparent; }
+.sev-trail .arrow { color: var(--muted); }
+.sev.pulse { animation: sevpulse 1.2s ease-out 2; }
+@keyframes sevpulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 91, 110, .7); transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { box-shadow: 0 0 0 14px rgba(255, 91, 110, 0); transform: scale(1); }
+}
+.msg.sevchange { font-weight: 700; font-size: 13px; border: 1px solid currentColor; }
+.msg details { margin-top: 6px; }
+.msg details summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.msg details pre {
+  max-height: 180px; overflow: auto; margin: 6px 0 0; padding: 8px; border-radius: 8px;
+  background: #0b1424; font-size: 11px; white-space: pre; color: #b9c7de;
+}
+.zip { color: var(--accent); margin-right: 8px; text-decoration: none; font-weight: 700; }
+.zip:hover { text-decoration: underline; }
+.hidden.zip { display: none; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 640px) {
+  .topbar, .toolbar { padding-left: 16px; padding-right: 16px; }
+  .grid { padding-left: 16px !important; padding-right: 16px !important; }
+  .doc { flex-wrap: wrap; gap: 6px; }
+}
+.doc > span:first-child { min-width: 0; font-size: 13px; }
+.doc > span:last-child { display: flex; gap: 4px; flex-shrink: 0; }
+.doc .btn.small, .doc button { padding: 3px 7px; font-size: 11px; }

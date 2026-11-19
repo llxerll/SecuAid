@@ -116,6 +116,9 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
     def push(text: str, who: str, ref: str, kind: str = "지금", priority: int = 5) -> None:
         if any(a["action"] == text for a in actions):
             return
+        # 플레이북 카드 항목(우선순위 4 이상)은 이미 앞에 나온 행동과 주제가 같으면 다시 넣지 않는다.
+        if priority >= 4 and any(_same_topic(text, a["action"]) or _similar(text, a["action"]) for a in actions):
+            return
         actions.append({"action": text, "who": who, "ref": ref, "kind": kind, "priority": priority})
 
     # 사실 기반 최우선 행동
@@ -128,7 +131,7 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
         push("업무 메일 밖의 안전한 대응 채널 개설(전화·메신저) 후 참여자 명단 고정", "사건 책임자", "2.1", "0~10분", 2)
     if cls.type == "root":
         push("서버를 재부팅·재설치하거나 의심 프로세스·파일을 지우지 말고 그대로 보존(메모리·흔적 소실)", "IT/관리자", "2.7", "0~10분", 1)
-        push("전문 사고대응 조직/CSP·메일 서비스 지원에 즉시 호출 — 서버 포렌식은 이 문서 범위 밖", "대표", "2.7", "0~10분", 1)
+        push("전문 사고대응 조직/CSP·메일 서비스 지원 즉시 호출 — 서버 자체 장악·포렌식은 이 플레이북 범위 밖(우리는 차단·보존·보고까지만)", "대표", "2.7", "0~10분", 1)
         push("메일 게이트웨이를 내부망에서 분리할지 결정(서비스 중단 영향 포함), 결정자·시각 기록", "대표·IT/관리자", "2.7", "15분", 3)
         push("업무 메일 밖의 안전한 대응 채널 개설(전화·메신저) 후 참여자 명단 고정", "사건 책임자", "2.1", "0~10분", 2)
     for cid in cards:
@@ -143,10 +146,6 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
     if case.value("personal_data_leak") in ("suspected", "confirmed"):
         push("사서함에 보관된 개인정보 항목·규모 확인(이름·연락처·주소 등) — 확인된 범위로 신고", "개인정보 담당", "7.1", "조사", 6)
 
-    # 플레이북 범위 밖
-    if cls.type == "root":
-        push("초동 조치(차단·보존·보고) 후 전문 대응 조직 즉시 호출 — 서버 자체 장악은 이 플레이북 범위 밖", "대표", "2.7", "지금", 1)
-
     actions.sort(key=lambda a: a["priority"])
     return actions[:12]
 
@@ -159,6 +158,20 @@ def _who_for(action: str) -> str:
     if any(k in action for k in ("차단", "격리", "검색", "콘솔", "로그", "세션")):
         return "IT/관리자"
     return "사건 책임자"
+
+
+# 같은 행동을 가리키는 핵심어 묶음 — 둘 다 포함하면 같은 행동으로 본다.
+_TOPICS = (
+    ("지급정지",),
+    ("세션",),
+    ("경찰",),
+    ("안전한", "채널"),
+    ("호출",),
+)
+
+
+def _same_topic(a: str, b: str) -> bool:
+    return any(all(k in a for k in t) and all(k in b for k in t) for t in _TOPICS)
 
 
 def _similar(a: str, b: str) -> bool:

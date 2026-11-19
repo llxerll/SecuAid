@@ -19,13 +19,13 @@ from . import docs as docs_mod
 from . import eml as eml_mod
 from . import ingest
 from . import playbook
-from .case import Case
+from .case import FACT_LABEL, Case, display_value
 from .classify import Classification, classify
 from .detect import DetectionResult, detect
 from .liner import LinerClient, LinerError, LinerUnavailable
 from .mask import Masker
 from .severity import Severity, evaluate as evaluate_severity
-from .timeutil import kst_label, now_utc, parse_kst_local
+from .timeutil import kst_label, kst_short, now_utc, parse_kst_local
 
 SCENARIO_DIR = Path(__file__).resolve().parent.parent / "data" / "scenarios"
 
@@ -79,6 +79,7 @@ class Agent:
     scenario: str | None = None
     narrative: str = ""
     logs: list = field(default_factory=list)
+    sev_history: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.masker.keep_ip = True  # IP는 내부 대응에 필요하고, 예약 대역만 쓰는 데모 데이터다
@@ -109,6 +110,7 @@ class Agent:
         self.case = Case()
         self.det = DetectionResult()
         self.logs = []
+        self.sev_history = []
         for key, val in (meta.get("facts") or {}).items():
             self.case.set_fact(key, val, "확인", f"시나리오 데이터({meta.get('title', scenario_id)})")
         self.case.set_fact("org_name", meta.get("org_name"), "확인", "시나리오 데이터")
@@ -277,7 +279,7 @@ class Agent:
 
         for key, (value, lv) in changes.items():
             self.case.set_fact(key, value, lv, "사용자 진술")
-            updated.append(f"{key}={value}[{lv}]")
+            updated.append(f"{FACT_LABEL.get(key, key)} {display_value(key, value)}[{lv}]")
 
         # LLM 보조 추출(비어 있는 항목만)
         if self.client.available and not updated:
@@ -297,7 +299,7 @@ class Agent:
                         continue
                     if not self.case.known(key):
                         self.case.set_fact(key, val, "추정", "Liner Mark 사실 추출")
-                        updated.append(f"{key}={val}[추정]")
+                        updated.append(f"{FACT_LABEL.get(key, key)} {display_value(key, val)}[추정]")
             except (LinerError, ValueError):
                 pass
         return updated
@@ -322,9 +324,21 @@ class Agent:
             elif self.cls.type in ("spoof", "lookalike"):
                 self.case.set_fact("external_illegal_access", False, "확인", "우리 시스템 접근 흔적 없음")
         self.sev = evaluate_severity(self.case, self.det, self.cls)
+        self._track_severity()
         self.deadlines = deadline_mod.board(self.case)
         self.actions = playbook.next_actions(self.case, self.det, self.cls, self.sev)
         self.phase = playbook.phase_now(self.case)
+
+    def _track_severity(self) -> None:
+        """심각도가 바뀐 순간을 기록한다 — '왜 P1이 됐나'를 화면·보고서에서 되짚을 수 있게."""
+        last = self.sev_history[-1] if self.sev_history else None
+        if last and last["level"] == self.sev.level:
+            return
+        self.sev_history.append({
+            "level": self.sev.level, "name": self.sev.name,
+            "reason": (self.sev.reasons or [""])[0],
+            "at": kst_short(now_utc()),
+        })
 
     # ------------------------------------------------------------------ Liner: 법령 재확인
     def verify_law(self, *, force: bool = False) -> dict:
@@ -454,6 +468,7 @@ class Agent:
             "case": {**self.case.summary(), "aware_at": self.case.aware_label(),
                      "mode": "liner" if self.client.available else "offline"},
             "severity": self.sev.to_dict(),
+            "severity_history": self.sev_history[-6:],
             "classification": self.cls.to_dict(),
             "phase": self.phase,
             "findings": [f.to_dict() for f in self.det.ordered()],
@@ -490,6 +505,24 @@ class Agent:
             self.compose_docs()
         self._recompute()
         return self.board(reply="시나리오 실행 완료 — " + self.sev.level + " " + self.sev.name)
+
+    def start_replay(self, scenario_id: str, *, aware_at: str | None = None) -> list[dict]:
+        """화면에서 한 단계씩 재생할 데모 입력 목록을 돌려준다(사건은 빈 상태로 시작)."""
+        d = SCENARIO_DIR / scenario_id
+        if not (d / "scenario.json").exists():
+            raise FileNotFoundError(f"시나리오를 찾을 수 없습니다: {scenario_id}")
+        meta = json.loads((d / "scenario.json").read_text(encoding="utf-8"))
+        self.load_scenario(scenario_id, aware_at=aware_at, preload=False)
+        steps = []
+        for step in meta.get("demo_inputs", []):
+            files = re.findall(r"@file:([\w.\-]+)", step)
+            text = self._resolve_files(step, d)
+            if files:
+                label = "📎 " + ", ".join(files) + f" 붙여넣기 ({text.count(chr(10)) + 1}줄)"
+            else:
+                label = step
+            steps.append({"label": label, "text": text, "files": files})
+        return steps
 
     @staticmethod
     def _resolve_files(step: str, scenario_dir: Path) -> str:

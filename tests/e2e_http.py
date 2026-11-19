@@ -115,6 +115,23 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body.startswith(b"PK"))
 
+    def test_replay_and_zip_over_http(self):
+        sid = http_json("/api/session", "POST", {})["session"]
+        data = http_json(f"/api/{sid}/replay/s1_bec_account_change", "POST", {})
+        self.assertEqual(len(data["steps"]), 5)
+        for st in data["steps"]:
+            board = http_json(f"/api/{sid}/message", "POST", {"text": st["text"]})["board"]
+        self.assertEqual(board["severity"]["level"], "P1")
+        self.assertGreaterEqual(len(board["severity_history"]), 2)
+        http_json(f"/api/{sid}/docs", "POST", {})
+        status, body = http(f"/api/{sid}/docs.zip", raw=True)
+        self.assertEqual(status, 200)
+        import io
+        import zipfile
+        names = zipfile.ZipFile(io.BytesIO(body)).namelist()
+        self.assertIn("00_사건_리포트.md", names)
+        self.assertGreaterEqual(sum(n.endswith(".md") for n in names), 11)
+
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             http("/api/nope/message", "POST", {"text": "hi"})

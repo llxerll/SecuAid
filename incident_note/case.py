@@ -62,6 +62,35 @@ FACT_LABEL = {
 }
 
 
+# 내부 코드값 → 화면·문서에 쓰는 한국어 표기
+VALUE_LABEL = {
+    "incident_type": {"ato": "메일 계정 탈취(ATO)", "spoof": "발신자 위조(스푸핑)",
+                      "lookalike": "유사 도메인 사칭", "root": "서버 관리자 권한 탈취", "unknown": "판별 전"},
+    "transfer_status": {"none": "송금 없음", "pending": "송금 진행·예정", "done": "송금 완료", "unknown": "미확인"},
+    "personal_data_leak": {"none": "유출 흔적 없음", "suspected": "유출 의심", "confirmed": "유출 확인",
+                           "unknown": "미확인"},
+}
+
+
+def display_value(key: str, val: Any) -> Any:
+    """사실 값을 사람이 읽는 문장으로 바꾼다(판단 로직은 원래 값을 그대로 쓴다)."""
+    if isinstance(val, datetime):
+        return kst_label(val)
+    if isinstance(val, bool):
+        return "예" if val else "아니오"
+    if key in VALUE_LABEL and isinstance(val, str):
+        return VALUE_LABEL[key].get(val, val)
+    if isinstance(val, (list, tuple, set)):
+        return ", ".join(str(v) for v in val)
+    if key == "affected_count" and isinstance(val, int):
+        return f"{val:,}명"
+    if key == "org_size" and isinstance(val, int):
+        return f"{val}명"
+    if key == "transfer_amount" and isinstance(val, int):
+        return f"{val:,}원"
+    return val
+
+
 @dataclass
 class Fact:
     value: Any = None
@@ -164,9 +193,8 @@ class Case:
             if f.value in (None, "", [], "unknown"):
                 continue
             val = f.value
-            if isinstance(val, datetime):
-                val = kst_label(val)
-            out.append({"key": k, "label": FACT_LABEL.get(k, k), "value": val,
+            out.append({"key": k, "label": FACT_LABEL.get(k, k), "value": display_value(k, val),
+                        "raw": val if not isinstance(val, datetime) else val.isoformat(),
                         "level": f.level, "source": f.source})
         return out
 
