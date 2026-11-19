@@ -109,5 +109,44 @@ class TestChatFlow(unittest.TestCase):
         self.assertIn("회사 메일 도메인", " ".join(board["missing"]))
 
 
+class TestV04Polish(unittest.TestCase):
+    """v0.4: 단계별 재생·심각도 변화·사람이 읽는 사실 값·행동 중복 제거."""
+
+    def test_replay_steps_and_severity_trail(self):
+        a = agent()
+        steps = a.start_replay("s1_bec_account_change")
+        self.assertEqual(len(steps), 5)
+        self.assertTrue(steps[1]["label"].startswith("📎 account_change_sent.eml"))
+        self.assertIn("From:", steps[1]["text"])  # @file 이 실제 원문으로 풀린다
+        board = None
+        for st in steps:
+            board = a.handle(st["text"])
+        levels = [h["level"] for h in board["severity_history"]]
+        self.assertEqual(levels[0], "P3")
+        self.assertEqual(levels[-1], "P1")
+        self.assertEqual(board["severity"]["level"], "P1")
+
+    def test_fact_values_are_human_readable(self):
+        a = agent()
+        board = a.run_scenario("s1_bec_account_change")
+        vals = {f["key"]: f["value"] for f in board["facts"]}
+        self.assertEqual(vals["transfer_status"], "송금 완료")
+        self.assertEqual(vals["personal_data_leak"], "유출 의심")
+        self.assertEqual(vals["is_ict_service_provider"], "예")
+        self.assertEqual(vals["org_domains"], "hanbit-logis.example")
+        raw = {f["key"]: f["raw"] for f in board["facts"]}
+        self.assertEqual(raw["transfer_status"], "done")  # 판단 로직용 원래 값도 유지
+        whys = " ".join(d["why"] for d in board["deadlines"]["items"])
+        self.assertNotIn("suspected", whys)
+
+    def test_actions_have_no_duplicate_topics(self):
+        for sid in ("s1_bec_account_change", "s3_selfhosted_root_out_of_scope"):
+            board = agent().run_scenario(sid)
+            texts = [x["action"] for x in board["actions"]]
+            for key in ("세션", "호출"):
+                self.assertLessEqual(sum(key in t for t in texts), 1, (sid, key, texts))
+            self.assertLessEqual(sum("지급정지" in t and "은행" in t and "거래처" not in t for t in texts), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

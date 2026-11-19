@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .case import Case
+from .case import VALUE_LABEL, Case
 from .timeutil import UTC, human_delta, kst_label, now_utc
 
 DATA = Path(__file__).resolve().parent.parent / "data"
@@ -84,6 +84,10 @@ def _intrusion_state(case: Case) -> tuple[str, str]:
     return "unknown", "침해 여부 미확인"
 
 
+def _pi_label(pi: str) -> str:
+    return VALUE_LABEL["personal_data_leak"].get(pi, pi)
+
+
 def compute(case: Case, rules: dict | None = None) -> list[Deadline]:
     rules = rules or load_rules()
     aware = case.aware_at
@@ -128,9 +132,9 @@ def compute(case: Case, rules: dict | None = None) -> list[Deadline]:
             elif pi == "none":
                 status, why = "비해당", "개인정보 유출 흔적 없음"
             elif conds:
-                status, why = "해당", f"유출 {pi} + " + ", ".join(conds)
+                status, why = "해당", f"{_pi_label(pi)} + " + ", ".join(conds)
             else:
-                status, why = "검토", f"유출 {pi}이지만 신고 요건(1천 명·민감정보·외부 불법접근) 미확인"
+                status, why = "검토", f"{_pi_label(pi)}이지만 신고 요건(1천 명·민감정보·외부 불법접근) 미확인"
                 missing = ["affected_count", "sensitive_or_unique_id", "external_illegal_access"]
 
         elif rid == "R_PI_NOTICE":
@@ -140,7 +144,7 @@ def compute(case: Case, rules: dict | None = None) -> list[Deadline]:
             elif pi == "none":
                 status, why = "비해당", "유출 흔적 없음"
             else:
-                status, why = "해당", f"유출 {pi} — 확인/가능성 모두 통지 대상 검토"
+                status, why = "해당", f"{_pi_label(pi)} — 확인/가능성 모두 통지 대상 검토"
 
         if due and status in ("해당", "검토") and due < now_utc():
             why += " (기한 경과 — 즉시 신고 및 경과 사유 기록)"
@@ -164,7 +168,7 @@ def operational(case: Case, rules: dict | None = None) -> list[OperationalContac
         cid, triggered, why = c["id"], False, ""
         if cid == "O_BANK":
             triggered = transfer in ("done", "pending")
-            why = f"송금 {transfer}" + (f" · {amount}" if amount else "") if triggered else ""
+            why = VALUE_LABEL["transfer_status"].get(transfer, transfer) + (f" · {amount}" if amount else "") if triggered else ""
         elif cid == "O_COUNTERPARTY_BANK":
             triggered = transfer in ("done", "pending") and intr in ("ato", "lookalike", "spoof")
             why = "우리 계정/도메인 사칭으로 거래처가 송금한 정황" if triggered else ""

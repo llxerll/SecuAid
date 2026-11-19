@@ -68,10 +68,16 @@ def _fill(template: str, mapping: dict[str, str]) -> tuple[str, list[str]]:
     unknown = [p for p in placeholders if p not in mapping and p not in PRESERVE_LABELS]
     out = template
     for k, v in mapping.items():
-        out = out.replace(k, v)
+        # 값이 '미확인'인 칸도 무엇이 비었는지 보이게 남긴다(문장이 '미확인에 안내' 처럼 깨지지 않도록).
+        out = out.replace(k, _blank(k) if v == UNKNOWN else v)
     for p in unknown:
-        out = out.replace(p, UNKNOWN)
-    return out, unknown
+        out = out.replace(p, _blank(p))
+    return out, unknown + [k for k, v in mapping.items() if v == UNKNOWN and k in placeholders]
+
+
+def _blank(placeholder: str) -> str:
+    """채우지 못한 빈칸 표시 — 담당자가 발송 전에 찾아 채울 수 있게 항목명을 함께 남긴다."""
+    return f"〔{UNKNOWN}: {placeholder.strip('[]')}〕"
 
 
 def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[str, str]:
@@ -249,8 +255,13 @@ def build_documents(case: Case, det: DetectionResult, cls: Classification, sev: 
         body, left = _fill(t.get("body", ""), fmap)
         subject, _ = _fill(t.get("subject", ""), fmap) if t.get("subject") else ("", [])
         full = (f"제목: {subject}\n\n{body}" if subject else body)
-        full += "\n\n---\n■ 확인 근거\n" + "\n".join(evidence)
+        full += ("\n\n" + "=" * 60 + "\n▼ 여기부터는 내부 검토용입니다. 발송 전에 이 줄 아래를 모두 삭제하세요.\n"
+                 + "=" * 60)
+        if left:
+            full += "\n\n■ 발송 전에 채울 칸\n" + "\n".join(f"- {x.strip('[]')}" for x in left)
+        full += "\n\n■ 확인 근거\n" + "\n".join(evidence)
         full += "\n\n■ 미확인 사항\n" + "\n".join(f"- {u}" for u in unknowns)
+        full += "\n\n■ 발송 전 통과표\n" + "\n".join(f"☐ {g}" for g in gate)
         docs[key] = Document(key, t.get("title", key), "notice", full, evidence, unknowns, gate,
                              recipients=_recipients_for(key, case))
 

@@ -85,6 +85,20 @@ def run_scenario(sid: str, scenario_id: str):
     return jsonify({"board": board})
 
 
+@app.post("/api/<sid>/replay/<scenario_id>")
+def start_replay(sid: str, scenario_id: str):
+    """단계별 재생: 사건을 비우고 데모 입력 목록을 돌려준다. 화면이 /message 로 하나씩 보낸다."""
+    agent = _agent(sid)
+    if not agent:
+        return jsonify({"error": "세션이 없습니다."}), 404
+    body = request.get_json(silent=True) or {}
+    try:
+        steps = agent.start_replay(scenario_id, aware_at=body.get("aware_at"))
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    return jsonify({"steps": steps, "board": agent.board()})
+
+
 @app.get("/api/<sid>/board")
 def get_board(sid: str):
     agent = _agent(sid)
@@ -132,12 +146,43 @@ def get_docx(sid: str, doc_id: str):
                     headers={"Content-Disposition": f'attachment; filename="{doc_id}.docx"'})
 
 
+@app.get("/api/<sid>/docs.zip")
+def get_docs_zip(sid: str):
+    """생성된 문서 전체를 한 번에 — Markdown + (가능하면) DOCX + 사건 리포트."""
+    import io
+    import zipfile
+
+    from incident_note.docs import Document
+
+    agent = _agent(sid)
+    if not agent:
+        return "세션이 없습니다.", 404
+    if not agent.case.docs:
+        return "문서가 없습니다. 먼저 문서를 생성해 주세요.", 404
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("00_사건_리포트.md", _report_text(agent))
+        for i, (doc_id, doc) in enumerate(agent.case.docs.items(), 1):
+            base = f"{i:02d}_{doc_id}"
+            zf.writestr(f"{base}.md", doc["body"])
+            data = to_docx(Document(doc["id"], doc["title"], doc["kind"], doc["body"]))
+            if data:
+                zf.writestr(f"{base}.docx", data)
+    name = f"{agent.case.id}_documents.zip"
+    return Response(buf.getvalue(), mimetype="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @app.get("/api/<sid>/report")
 def report(sid: str):
     """테스트·데모 검증용 평문 리포트(마크다운)."""
     agent = _agent(sid)
     if not agent:
         return "세션이 없습니다.", 404
+    return Response(_report_text(agent), mimetype="text/markdown; charset=utf-8")
+
+
+def _report_text(agent: Agent) -> str:
     board = agent.board()
     lines = [f"# {board['case']['title']} ({board['case']['id']})",
              f"- 인지: {board['case']['aware_at']} / 모드: {board['case']['mode']}",
@@ -153,7 +198,10 @@ def report(sid: str):
     lines += ["", "## 타임라인(발췌)"]
     lines += [f"- {f['ts_kst']} (UTC {f['ts'][:16] if f['ts'] else '-'}) {f['rule_id']} {f['summary']}"
               for f in board["findings"][:25]]
-    return Response("\n".join(lines), mimetype="text/markdown; charset=utf-8")
+    if board.get("severity_history"):
+        lines += ["", "## 심각도 변화"]
+        lines += [f"- {h['at']} {h['level']} {h['name']} — {h['reason']}" for h in board["severity_history"]]
+    return "\n".join(lines)
 
 
 def _run(agent: Agent, *, scenario_id: str, aware_at: str | None = None) -> dict:
