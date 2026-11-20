@@ -72,14 +72,16 @@ class TestWebApp(unittest.TestCase):
         self.assertIn('data-stage="start"', body)
         self.assertIn('id="startView"', body)                    # 첫 화면
         self.assertIn('id="clock"', body)                        # 72시간 시계
-        self.assertEqual(body.count('role="tab"'), 4)            # 할 일 · 타임라인 · 문서 · 근거
+        self.assertEqual(body.count('<button class="b-tab'), 4)   # 할 일 · 타임라인 · 문서 · 근거
+        self.assertIn('id="chartNative"', body)                  # 앱이 그리는 72시간 대응 차트
         self.assertEqual(body.count('<button class="m-tab'), 4)         # 모바일 하단 4탭
         self.assertIn('data-tab="side"', body)
         self.assertIn('id="sidePane"', body)
         # Liner 차트는 격리된 창에서 — 고유 출처(allow-same-origin)를 주지 않는다
         self.assertIn('sandbox="allow-scripts"', body)
         self.assertNotIn("allow-same-origin", body)
-        self.assertIn('href="/static/logo.svg"', body)
+        self.assertIn('href="/static/logo.svg?v=', body)
+        self.assertIn('href="/favicon.ico?v=', body)
 
     def test_static_assets(self):
         for path in ("/static/app.js", "/static/style.css"):
@@ -90,6 +92,11 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(logo.startswith(b"\x89PNG"))
         self.assertGreater(len(logo), 2000)
+
+    def test_favicon_ico_served(self):
+        status, body = http("/favicon.ico", raw=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(body[:4], b"\x00\x00\x01\x00")       # ICO 헤더
 
     def test_html_ids_match_js(self):
         """JS가 참조하는 DOM id가 HTML에 모두 존재해야 화면이 깨지지 않는다."""
