@@ -514,7 +514,8 @@ async function showViz() {
       say("system", "차트를 만들지 못했습니다 — " + ((data.viz || {}).reason || "요약 카드로 대체합니다."));
     }
   } catch (e) {
-    say("system", "차트 요청 실패: " + e.message);
+    say("system", "차트 요청 실패: " + e.message +
+      " — 서버가 식어 있으면 첫 요청이 오래 걸릴 수 있습니다. 잠시 뒤 [차트로 보기]를 한 번 더 눌러 주세요.");
   } finally {
     setBusy(false);
   }

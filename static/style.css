@@ -423,7 +423,12 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
 .modal-head > div { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .modal pre { margin: 0; padding: 16px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; line-height: 1.65; }
 .viz-box { width: min(1100px, 96vw); height: min(88vh, 900px); }
-.viz-frame { flex: 1; width: 100%; border: 0; background: #0b1424; border-radius: 0 0 14px 14px; }
+/* Liner Visualization 아티팩트는 밝은(light) 테마로 오는 경우가 많다.
+   어두운 바탕을 깔면 본문 글자색(#1e1e1f)과 겹쳐 아무것도 안 보이므로 흰 바탕을 둔다. */
+.viz-frame {
+  flex: 1; width: 100%; border: 0; background: #ffffff; color-scheme: light;
+  border-radius: 0 0 14px 14px;
+}
 
 /* 바닥 */
 .foot {
@@ -498,6 +503,8 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
   .toolbar .btn { flex: 0 0 auto; padding: 8px 11px; font-size: 12px; }
   .quick-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .quick-chips::-webkit-scrollbar { display: none; }
+  .catbar { scrollbar-width: none; }
+  .catbar::-webkit-scrollbar { display: none; }
   .quick { flex: 0 0 auto; }
   .attach-row { flex-wrap: nowrap; }
   .attach-row .hint { display: none; }
