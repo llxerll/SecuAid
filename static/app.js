@@ -501,7 +501,8 @@ async function showViz() {
   if (S.busy) return;
   await ensureSession();
   if (S.viz) { openViz(); return; }
-  setBusy(true, "차트 생성 중… (Visualization, 최대 30초)");
+  $("vizBtn").textContent = "차트 생성 중…";
+  setBusy(true, "차트 생성 중… (Visualization, 약 10초)");
   try {
     const data = await api(`/api/${S.sid}/viz`, { method: "POST", body: JSON.stringify({}) });
     S.board = data.board || S.board;
