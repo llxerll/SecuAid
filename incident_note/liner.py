@@ -29,6 +29,7 @@ from typing import Any
 DEFAULT_BASE = "https://platform.liner.com/api/v1"
 DEFAULT_MODEL = "liner-mark-1.3"
 LOCAL_ENV = Path(__file__).resolve().parent.parent / ".env"
+_STATUS_CACHE: dict[tuple, tuple[float, dict]] = {}   # 인스턴스가 살아 있는 동안 /models 확인 결과 재사용
 
 
 class LinerError(RuntimeError):
@@ -152,19 +153,20 @@ class LinerClient:
         """
         payload: dict[str, Any] = {"model": self.model, "messages": messages,
                                    "temperature": temperature, "max_tokens": max_tokens}
-        data = self._post("/chat/completions", payload, auth="bearer", api_name="chat")
+        data = self._post("/chat/completions", payload, auth="bearer", api_name="chat",
+                          timeout=min(self.timeout, 25), retries=1)
         try:
             return data["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError) as exc:
             raise LinerError(f"응답 형식이 예상과 다릅니다: {str(data)[:200]}") from exc
 
-    def chat_json(self, system: str, user: str, *, retries: int = 1) -> dict:
+    def chat_json(self, system: str, user: str, *, retries: int = 1, max_tokens: int = 400) -> dict:
         """JSON만 받는다. 코드펜스·설명이 섞이면 한 번 더 교정 요청한다."""
         messages = [{"role": "system", "content": system + "\n반드시 설명·코드펜스 없이 JSON 객체 하나만 출력한다."},
                     {"role": "user", "content": user}]
         last_raw = ""
         for _ in range(retries + 1):
-            raw = self.chat(messages, json_mode=True)
+            raw = self.chat(messages, json_mode=True, max_tokens=max_tokens)
             last_raw = raw
             parsed = _parse_json_loose(raw)
             if parsed is not None:
@@ -180,7 +182,8 @@ class LinerClient:
                                    "max_results": max(1, min(20, max_results)), "include_knowledge": False}
         if date_range:
             payload["date_range"] = date_range
-        data = self._post("/tools/search/web", payload, auth="x-api-key", api_name="search_web")
+        data = self._post("/tools/search/web", payload, auth="x-api-key", api_name="search_web",
+                          timeout=min(self.timeout, 15), retries=1)
         return [{"title": r.get("title", ""), "url": r.get("url", ""), "hostname": r.get("hostname", ""),
                  "description": r.get("description", ""), "date": r.get("date") or ""}
                 for r in data.get("results", [])]
@@ -190,7 +193,9 @@ class LinerClient:
                      history: list[dict] | None = None) -> dict:
         messages = list(history or []) + [{"role": "user", "content": question}]
         payload = {"messages": messages, "model": None, "lang": lang, "mode": mode, "stream": False}
-        data = self._post("/agents/search", payload, auth="x-api-key", api_name="search_agent")
+        # 서버리스 한도(60초) 안에서 끝나도록 재시도 없이 50초까지만 기다린다.
+        data = self._post("/agents/search", payload, auth="x-api-key", api_name="search_agent",
+                          timeout=min(self.timeout, 50), retries=0)
         refs = []
         for r in data.get("references") or []:
             refs.append({"title": r.get("title", ""), "url": r.get("url", ""),
@@ -211,7 +216,7 @@ class LinerClient:
         payload = {"messages": messages, "stream": False,
                    "request_id": "qa_" + hashlib.sha1(question.encode("utf-8")).hexdigest()[:12]}
         data = self._post("/agents/quick-answer", payload, auth="x-api-key",
-                          api_name="quick_answer", timeout=timeout or min(self.timeout, 60), retries=1)
+                          api_name="quick_answer", timeout=timeout or min(self.timeout, 30), retries=0)
         refs = []
         for r in data.get("references") or []:
             refs.append({"title": r.get("title", ""), "url": r.get("url", ""),
@@ -235,7 +240,7 @@ class LinerClient:
             if date_range:
                 payload["date_range"] = date_range
         data = self._post("/tools/visualization", payload, auth="x-api-key",
-                          api_name="visualization", timeout=timeout or max(self.timeout, 90), retries=1)
+                          api_name="visualization", timeout=timeout or min(self.timeout, 55), retries=0)
         artifact: dict = {}
         for chunk in data.get("chunks") or []:
             if chunk.get("type") == "data-atlas":
@@ -253,9 +258,15 @@ class LinerClient:
                 "resource_id": artifact.get("resourceId", ""), "references": refs}
 
     # ------------------------------------------------------------------ 상태
-    def status(self) -> dict:
-        ok, detail = False, "키 없음"
+    def status(self, *, probe: bool = False) -> dict:
+        """연결 상태. 화면을 열 때마다 Liner를 부르지 않도록 결과를 5분 캐시한다(probe=True면 새로 측정)."""
+        cache_key = (self.base_url, self.api_key[-6:] if self.api_key else "", self.offline)
+        hit = _STATUS_CACHE.get(cache_key)
+        if hit and not probe and time.time() - hit[0] < 300:
+            return {**hit[1], "cached": True}
+        ok, detail, ms = False, "키 없음", None
         if self.available:
+            started = time.time()
             try:
                 req = urllib.request.Request(f"{self.base_url}/models",
                                              headers={"Authorization": f"Bearer {self.api_key}"})
@@ -264,8 +275,12 @@ class LinerClient:
                     detail = "정상" if ok else f"HTTP {resp.status}"
             except Exception as exc:  # noqa: BLE001 - 상태 표시용
                 detail = str(exc)[:120]
-        return {"available": self.available, "ok": ok, "detail": detail, "model": self.model,
-                "base_url": self.base_url, "offline": self.offline or not self.api_key}
+            ms = int((time.time() - started) * 1000)
+        result = {"available": self.available, "ok": ok, "detail": detail, "model": self.model,
+                  "base_url": self.base_url, "offline": self.offline or not self.api_key, "latency_ms": ms}
+        if self.available:
+            _STATUS_CACHE[cache_key] = (time.time(), result)
+        return result
 
 
 def _parse_json_loose(raw: str) -> dict | None:

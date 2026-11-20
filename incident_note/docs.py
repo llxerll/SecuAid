@@ -318,6 +318,18 @@ def _recipients_for(key: str, case: Case) -> str:
     }.get(key, "")
 
 
+def _blank_label(name: str) -> str:
+    return f"〔{UNKNOWN}: {name}〕"
+
+
+def _done_line(case: Case) -> str:
+    """체크리스트에 완료 표시한 조치만 시각과 함께 쓴다 — 하지 않은 조치를 했다고 적지 않는다."""
+    done = sorted((case.done or {}).values(), key=lambda d: d.get("at_iso") or "")
+    if not done:
+        return _blank_label("현재까지의 대응 — 화면의 '지금 할 일'에 완료 표시하면 시각과 함께 채워집니다")
+    return "; ".join(f"{d.get('at', '')} {d.get('action', '')}".strip() for d in done[:8])
+
+
 def _header(title: str, case: Case, purpose: str) -> str:
     return (f"{title}\n{BRAND_KO} · {BRAND_EN} — 초동대응 초안(발송·제출 전 〔미확인〕 확인)\n"
             f"사건번호: {case.id} / 기준: {kst_label(case.aware_at) if case.aware_at else UNKNOWN}\n"
@@ -335,7 +347,7 @@ def _intrusion_report(case: Case, det: DetectionResult, cls: Classification,
         f"3. 침해 유형: {cls.label}\n"
         f"4. 발생 경위(확인된 범위): {_known_facts_line(det, case)}\n"
         f"5. 피해 내용: {_impact_line(case, det)}\n"
-        f"6. 현재까지의 대응: 계정 일시 중지·세션 철회 요청, 로그 보존, 거래처·직원 통지 준비\n"
+        f"6. 현재까지의 대응: {_done_line(case)}\n"
         f"7. 추가 확인이 필요한 사항: {', '.join(unknowns[:3])}\n"
         "8. 담당자 연락처: " + UNKNOWN + "\n"
         + ("9. 근거: " + ", ".join(sorted(rules)) + "\n" if rules else "")
@@ -373,10 +385,11 @@ def _pi_notice(case: Case, det: DetectionResult, cls: Classification,
     body += (
         f"안녕하세요. {case.value('org_name') or UNKNOWN}입니다.\n"
         f"{kst_label(case.aware_at) if case.aware_at else UNKNOWN}에 당사 업무용 이메일 계정이 제3자에게 사용된 사실을 확인하였고, "
-        f"해당 사서함에 보관된 고객 문의 정보(이름·연락처·주소)가 제3자에게 열람되었을 가능성이 있습니다.\n\n"
-        "· 현재 확인된 사실: 사서함 열람·검색 기록, 외부로 발송된 메일 기록\n"
+        f"해당 사서함에 보관된 {case.value('pi_data_types') or _blank_label('개인정보 항목')}이(가) "
+        "제3자에게 열람되었을 가능성이 있습니다.\n\n"
+        f"· 현재 확인된 사실: {_known_facts_line(det, case)}\n"
         "· 아직 확인되지 않은 사실: 열람된 정보의 정확한 항목과 규모, 추가 유출 여부\n"
-        "· 당사가 한 조치: 해당 계정의 접근 차단·세션 철회, 숨김 규칙 제거, 관련 메일 회수 요청\n\n"
+        f"· 당사가 한 조치: {_done_line(case)}\n\n"
         "고객님께서 하실 일: 당사 이름으로 온 송금·계좌 변경·문서 공유 요청 메일에 회신하거나 링크를 누르지 마시고, "
         "이미 송금하셨다면 거래 은행에 지급정지·회수를 요청하신 뒤 당사 공식 연락처로 알려 주십시오.\n"
         f"공식 확인 연락처: {UNKNOWN}\n"

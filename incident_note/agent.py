@@ -13,6 +13,7 @@ import base64
 import json
 import re
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -148,7 +149,15 @@ class Agent:
         self.narrative = meta.get("narrative", "")
 
     # ------------------------------------------------------------------ 대화
-    def handle(self, text: str) -> dict:
+    def handle(self, text: str, *, defer: bool = False) -> dict:
+        """사용자 입력 한 건 처리.
+
+        defer=True(화면 기본값): 결정적 엔진 결과만 즉시 돌려주고, Liner 호출(사실 보조 추출·브리핑·
+        법령 재확인·즉답 가이드)은 `pending` 목록으로 넘겨 화면이 /enrich·/law 로 따로 부른다.
+        사용자는 판정·할 일·기한을 1초 안에 보고, Liner 문장은 뒤따라 붙는다.
+        """
+        self._defer = defer
+        self._pending = []
         text = (text or "").strip()
         if not text:
             return self.board(reply="무엇을 확인할까요? 사건 설명, 로그 붙여넣기, 메일 원본 중 하나로 시작할 수 있습니다.")
@@ -188,18 +197,28 @@ class Agent:
                     actions_taken.append(f"10대 유형 연결: {cat.no}. {cat.name}")
 
         intent = self._intent(text, kind)
-        if intent == "law" or (self.det.findings and not self.case.law_checks and intent == "logs"):
-            self.verify_law()
+        need_law = intent == "law" or (self.det.findings and not self.case.law_checks and intent == "logs")
+        if need_law:
+            if defer and self.client.available:
+                self._pending.append("law")
+            else:
+                self.verify_law()
         if intent == "guide" and self.case.value("category"):
-            self.quick_guide(force=True)
+            if defer and self.client.available:
+                self._pending.append("guide")
+            else:
+                self.quick_guide(force=True)
             actions_taken.append("유형별 즉답 가이드 조회")
         if intent == "docs":
-            self.compose_docs()
+            self.compose_docs(wait_law=not defer)
             actions_taken.append("문서 초안 생성")
 
         self._recompute()
-        reply = self._reply_text(intent, actions_taken, warnings)
+        reply = self._reply_text(intent, actions_taken, warnings, narrate=not defer)
+        if defer and self.client.available:
+            self._pending.append("narrate")
         board = self.board(reply=reply, warnings=warnings)
+        board["pending"] = list(dict.fromkeys(self._pending))
         self.case.log("assistant", reply[:800])
         return board
 
@@ -321,8 +340,16 @@ class Agent:
             self.case.set_fact(key, value, lv, "사용자 진술")
             updated.append(f"{FACT_LABEL.get(key, key)} {display_value(key, value)}[{lv}]")
 
-        # LLM 보조 추출(비어 있는 항목만)
-        if self.client.available and not updated:
+        # LLM 보조 추출(비어 있는 항목만) — defer 이면 /enrich 의 facts 작업으로 미룬다
+        if self.client.available and not updated and getattr(self, "_defer", False):
+            self._pending.append("facts")
+        elif self.client.available and not updated:
+            updated += self._llm_facts(text)
+        return updated
+
+    def _llm_facts(self, text: str) -> list[str]:
+        updated: list[str] = []
+        if self.client.available:
             try:
                 masked = self.masker.mask(text)
                 data = self.client.chat_json(LLM_FACT_PROMPT, f"발화: {masked}\n\nJSON 스키마: {FACT_SCHEMA_HINT}")
@@ -331,8 +358,8 @@ class Agent:
                         key = "transfer_amount"
                         if val:
                             val = f"{int(val):,}원"
-                    if key == "occurred_hint":
-                        continue
+                    if key == "occurred_hint" or key not in DEFAULT_FACTS:
+                        continue  # 스키마 밖의 키는 사건 사실로 받지 않는다
                     if val in (None, "", "unknown", []):
                         continue
                     if isinstance(val, str) and (len(val.strip()) <= 2 or val.strip() in ("거래처", "회사", "고객", "알 수 없음")):
@@ -340,7 +367,7 @@ class Agent:
                     if not self.case.known(key):
                         self.case.set_fact(key, val, "추정", "Liner Mark 사실 추출")
                         updated.append(f"{FACT_LABEL.get(key, key)} {display_value(key, val)}[추정]")
-            except (LinerError, ValueError):
+            except (LinerError, ValueError, TypeError):
                 pass
         return updated
 
@@ -427,13 +454,30 @@ class Agent:
     def verify_law(self, *, force: bool = False) -> dict:
         if self.case.law_checks and not force:
             return self.case.law_checks[-1]
+        return self.merge_law_check(self.fetch_law_check())
+
+    def merge_law_check(self, check: dict) -> dict:
+        """화면이 /law 로 따로 받아 온 법령 재확인 결과를 사건에 붙인다(상태 토큰 경합 방지)."""
+        if not isinstance(check, dict) or "status" not in check:
+            return {}
+        if any(c.get("checked_at") == check.get("checked_at") for c in self.case.law_checks):
+            return check
+        self.case.law_checks.append(check)
+        self.case.sources.extend(check.get("references") or [])
+        self.case.sources.extend(check.get("channels_live") or [])
+        return check
+
+    def fetch_law_check(self) -> dict:
+        """Search Agent(근거 답변)와 Search(공식 창구)를 동시에 호출한다 — 사건 상태는 바꾸지 않는다."""
         check = {"question": LAW_QUESTION, "answer": "", "references": [], "drift": [],
                  "status": "offline", "checked_at": now_utc().isoformat()}
         if self.client.available:
+            pool = ThreadPoolExecutor(max_workers=2)
+            web_future = pool.submit(self.client.search_web,
+                                     "KISA 침해사고 신고 118 개인정보 유출 신고 개인정보포털", max_results=4)
             try:
                 res = self.client.search_agent(LAW_QUESTION)
                 check.update({"status": "live", "answer": res["answer"], "references": res["references"][:12]})
-                self.case.sources.extend(res["references"][:12])
                 hours = {"intrusion": _hours_from(res["answer"], "정보통신망"), "pi": _hours_from(res["answer"], "개인정보")}
                 check["hours"] = hours
                 rules = deadline_mod.load_rules()["rules"]
@@ -442,21 +486,72 @@ class Agent:
                     check["drift"].append(f"침해사고 신고: 코드 {by_id['R_INTRUSION_REPORT']['deadline_hours']}시간 vs 검색 {hours['intrusion']}시간")
                 if hours.get("pi") and hours["pi"] != by_id["R_PI_LEAK_REPORT"]["deadline_hours"]:
                     check["drift"].append(f"개인정보 통지: 코드 {by_id['R_PI_LEAK_REPORT']['deadline_hours']}시간 vs 검색 {hours['pi']}시간")
-                try:
-                    web = self.client.search_web("KISA 침해사고 신고 118 개인정보 유출 신고 개인정보포털", max_results=4)
-                    check["channels"] = web
-                    self.case.sources.extend(web)
-                except LinerError:
-                    pass
             except LinerError as exc:
                 check.update({"status": "error", "error": str(exc)[:200]})
+            try:
+                web = web_future.result()
+                check["channels"] = web
+                check["channels_live"] = web
+            except LinerError:
+                pass
+            finally:
+                pool.shutdown(wait=False)
         if not check["references"]:
             check["channels"] = check.get("channels") or [
                 {"title": "KISA 보호나라·KrCERT/CC (118)", "url": "https://www.boho.or.kr/"},
                 {"title": "개인정보 유출 신고 (개인정보포털)", "url": "https://pipc.go.kr/"},
             ]
-        self.case.law_checks.append(check)
         return check
+
+    # ------------------------------------------------------------------ Liner 보강(비동기 화면용)
+    def enrich(self, tasks: list[str], *, text: str = "") -> dict:
+        """판정 직후 화면이 부르는 Liner 보강 — 사실 보조 추출 뒤 브리핑·즉답 가이드를 동시에 호출한다.
+
+        결정적 결과(심각도·기한·할 일)는 이미 화면에 있다. 여기서는 문장과 근거만 덧붙인다.
+        """
+        tasks = [t for t in tasks if t in ("facts", "narrate", "guide")]
+        out: dict = {"brief": "", "updated": [], "timings": {}}
+        if not self.client.available or not tasks:
+            return out
+        if "facts" in tasks and text:
+            started = now_utc()
+            out["updated"] = self._llm_facts(text)
+            out["timings"]["facts"] = int((now_utc() - started).total_seconds() * 1000)
+            if out["updated"]:
+                self._recompute()
+        jobs = {}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            if "guide" in tasks and self.case.value("category"):
+                jobs["guide"] = pool.submit(self.quick_guide, force=True)
+            if "narrate" in tasks:
+                jobs["narrate"] = pool.submit(self._narrate)
+            for name, fut in jobs.items():
+                try:
+                    res = fut.result()
+                    if name == "narrate":
+                        out["brief"] = res or ""
+                except LinerError as exc:
+                    out.setdefault("errors", {})[name] = str(exc)[:160]
+        if out["brief"]:
+            self.case.log("assistant", "[Liner 브리핑] " + out["brief"][:800])
+        return out
+
+    # ------------------------------------------------------------------ 체크리스트
+    def set_action_done(self, key: str, done: bool) -> dict | None:
+        """지금 할 일 체크 — 완료 시각을 사건 기록에 남기고, 신고서 '현재까지의 대응'에 쓴다."""
+        action = next((a for a in self.actions if a.get("key") == key), None)
+        if done:
+            if action is None and key not in self.case.done:
+                return None
+            label = action["action"] if action else self.case.done[key]["action"]
+            self.case.done[key] = {"action": label, "at": kst_short(now_utc()), "at_iso": now_utc().isoformat()}
+            self.case.log("checklist", f"완료: {label}")
+        else:
+            mark = self.case.done.pop(key, None)
+            if mark:
+                self.case.log("checklist", f"완료 취소: {mark['action']}")
+        self._recompute()
+        return self.case.done.get(key, {"undone": True})
 
     # ------------------------------------------------------------------ 10대 유형 (v0.5)
     def _category_view(self) -> dict | None:
@@ -548,15 +643,16 @@ class Agent:
                 "query": viz.get("query", self.viz_query())}
 
     # ------------------------------------------------------------------ 문서
-    def compose_docs(self) -> dict[str, dict]:
-        if not self.case.law_checks:
+    def compose_docs(self, *, wait_law: bool = True) -> dict[str, dict]:
+        if not self.case.law_checks and wait_law:
             self.verify_law()
         docs = docs_mod.build_documents(self.case, self.det, self.cls, self.sev)
         self.case.docs = {k: v.to_dict() for k, v in docs.items()}
         return self.case.docs
 
     # ------------------------------------------------------------------ 문장
-    def _reply_text(self, intent: str, actions_taken: list[str], warnings: list[str]) -> str:
+    def _reply_text(self, intent: str, actions_taken: list[str], warnings: list[str], *,
+                    narrate: bool = True) -> str:
         sev = self.sev
         cls = self.cls
         lines: list[str] = []
@@ -594,7 +690,9 @@ class Agent:
                 if g.get("references"):
                     lines.append("출처: " + ", ".join((r.get("hostname") or r.get("url") or "") for r in g["references"][:3]))
 
-        if self.client.available:
+        if self.client.available and not narrate:
+            pass  # 화면이 /enrich 로 Liner 브리핑을 따로 받아 덧붙인다
+        elif self.client.available:
             try:
                 brief = self._narrate()
                 if brief:
@@ -624,7 +722,7 @@ class Agent:
         out = self.client.chat([
             {"role": "system", "content": NARRATE_PROMPT},
             {"role": "user", "content": masked},
-        ], max_tokens=700, temperature=0.2)
+        ], max_tokens=450, temperature=0.2)
         return self.masker.unmask(out.strip())
 
     def _missing_questions(self) -> list[str]:
@@ -725,6 +823,7 @@ class Agent:
                 "docs": self.case.docs,
                 "history": self.case.history,
                 "notes": self.case.notes,
+                "done": self.case.done,
             },
             "det": {**self.det.to_dict(),
                     "findings": [{**f.to_dict(), "ts": f.ts.isoformat() if f.ts else None}
@@ -762,6 +861,7 @@ class Agent:
         case.docs = cdata.get("docs") or {}
         case.history = cdata.get("history") or []
         case.notes = cdata.get("notes") or []
+        case.done = cdata.get("done") or {}
 
         det = DetectionResult()
         ddata = data.get("det") or {}
@@ -804,19 +904,24 @@ class Agent:
         return cls.from_snapshot(json.loads(raw.decode("utf-8")), client=client)
 
     # ------------------------------------------------------------------ 데모
-    def run_scenario(self, scenario_id: str, *, aware_at: str | None = None, steps: list[str] | None = None) -> dict:
+    def run_scenario(self, scenario_id: str, *, aware_at: str | None = None, steps: list[str] | None = None,
+                     defer: bool = False) -> dict:
         """데모 입력을 실제 사용자 입력처럼 순서대로 흘려보낸다(사전 주입 없음)."""
         d = SCENARIO_DIR / scenario_id
         meta = json.loads((d / "scenario.json").read_text(encoding="utf-8"))
         self.load_scenario(scenario_id, aware_at=aware_at, preload=False)
         for step in (steps if steps is not None else meta.get("demo_inputs", [])):
-            self.handle(self._resolve_files(step, d))
+            self.handle(self._resolve_files(step, d), defer=defer)
         if not self.case.docs:
-            self.compose_docs()
+            self.compose_docs(wait_law=not defer)
         self._recompute()
         # 한 번에 실행에서도 대화창에 쓸 수 있는 브리핑을 남긴다(심각도·지금 할 일·기한·해석).
-        reply = self._reply_text("scenario", [f"시나리오 실행 완료 — {meta.get('title', scenario_id)}"], [])
-        return self.board(reply=reply)
+        reply = self._reply_text("scenario", [f"시나리오 실행 완료 — {meta.get('title', scenario_id)}"], [],
+                                 narrate=not defer)
+        board = self.board(reply=reply)
+        if defer and self.client.available:
+            board["pending"] = (["law"] if not self.case.law_checks else []) + ["narrate"]
+        return board
 
     def start_replay(self, scenario_id: str, *, aware_at: str | None = None) -> list[dict]:
         """화면에서 한 단계씩 재생할 데모 입력 목록을 돌려준다(사건은 빈 상태로 시작)."""

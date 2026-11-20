@@ -153,6 +153,7 @@ class Case:
     docs: dict[str, dict] = field(default_factory=dict)
     history: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    done: dict[str, dict] = field(default_factory=dict)      # 지금 할 일 체크리스트: key → {action, at}
 
     def __post_init__(self) -> None:
         for k, v in DEFAULT_FACTS.items():

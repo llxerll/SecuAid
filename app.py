@@ -100,9 +100,10 @@ def index():
 @app.get("/api/health")
 def health():
     client = LinerClient.from_env()
-    status = client.status()
+    status = client.status(probe=request.args.get("probe") == "1")
     return _ok(payload={
         "ok": True,
+        "region": os.environ.get("VERCEL_REGION", "local"),
         "brand": {"name": BRAND_KO, "en": BRAND_EN,
                   "subtitle": "중소·소호 기업 보안사고 초동대응 파트너"},
         "liner": status,
@@ -155,8 +156,56 @@ def message(sid: str):
     if not agent:
         return _missing()
     text = (body or {}).get("text", "")
-    board = agent.handle(text)
+    board = agent.handle(text, defer=bool(body.get("defer")))
     return _ok(agent, {"board": board})
+
+
+@app.post("/api/<sid>/enrich")
+def enrich(sid: str):
+    """Liner 보강(사실 보조 추출 → 브리핑·즉답 가이드 동시 호출). 판정은 /message 가 이미 돌려줬다."""
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    tasks = body.get("tasks") or ["narrate"]
+    out = agent.enrich([str(t) for t in tasks][:4], text=str(body.get("text") or "")[:4000])
+    return _ok(agent, {**out, "board": agent.board()})
+
+
+@app.post("/api/<sid>/law")
+def law_check(sid: str):
+    """법령 재확인(Search Agent ∥ Search)만 수행하고 결과를 돌려준다 — 사건 상태는 바꾸지 않는다.
+
+    20~30초 걸리므로 화면은 이 요청을 다른 요청과 동시에 보내고, 끝나면 /law/merge 로 붙인다.
+    """
+    agent = _agent(sid, _body())
+    if not agent:
+        return _missing()
+    return jsonify({"law_check": agent.fetch_law_check()})
+
+
+@app.post("/api/<sid>/law/merge")
+def law_merge(sid: str):
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    agent.merge_law_check(body.get("law_check") or {})
+    agent._recompute()
+    return _ok(agent, {"board": agent.board()})
+
+
+@app.post("/api/<sid>/action")
+def toggle_action(sid: str):
+    """지금 할 일 체크/해제 — 완료 시각이 신고서 '현재까지의 대응'에 들어간다."""
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    mark = agent.set_action_done(str(body.get("key") or ""), bool(body.get("done")))
+    if mark is None:
+        return jsonify({"error": "해당 항목이 없습니다."}), 404
+    return _ok(agent, {"mark": mark, "board": agent.board()})
 
 
 @app.post("/api/<sid>/category/<category_id>")
@@ -165,10 +214,13 @@ def apply_category(sid: str, category_id: str):
     agent = _agent(sid, body)
     if not agent:
         return _missing()
+    defer = bool(body.get("defer"))
     try:
-        board = agent.apply_category(category_id, guide=body.get("guide", True))
+        board = agent.apply_category(category_id, guide=False if defer else body.get("guide", True))
     except KeyError as exc:
         return jsonify({"error": str(exc)}), 404
+    if defer and agent.client.available:
+        board["pending"] = ["guide"]
     return _ok(agent, {"board": board, "category": board.get("category"),
                        "guide": board.get("guide")})
 
@@ -190,7 +242,8 @@ def run_scenario(sid: str, scenario_id: str):
     if not agent:
         return _missing()
     try:
-        board = _run(agent, scenario_id=scenario_id, aware_at=body.get("aware_at"))
+        board = _run(agent, scenario_id=scenario_id, aware_at=body.get("aware_at"),
+                     defer=bool(body.get("defer")))
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
     return _ok(agent, {"board": board})
@@ -210,7 +263,7 @@ def start_replay(sid: str, scenario_id: str):
     return _ok(agent, {"steps": steps, "board": agent.board()})
 
 
-@app.get("/api/<sid>/board")
+@app.route("/api/<sid>/board", methods=["GET", "POST"])
 def get_board(sid: str):
     agent = _agent(sid, _body())
     if not agent:
@@ -239,7 +292,7 @@ def make_docs(sid: str):
     agent = _agent(sid, body)
     if not agent:
         return _missing()
-    docs = agent.compose_docs()
+    docs = agent.compose_docs(wait_law=not body.get("defer"))
     agent._recompute()
     return _ok(agent, {"docs": docs, "board": agent.board()})
 
@@ -372,9 +425,9 @@ def _report_text(agent: Agent) -> str:
     return "\n".join(lines)
 
 
-def _run(agent: Agent, *, scenario_id: str, aware_at: str | None = None) -> dict:
+def _run(agent: Agent, *, scenario_id: str, aware_at: str | None = None, defer: bool = False) -> dict:
     """시나리오 한 번에 실행 — 데모·E2E 테스트 공용."""
-    return agent.run_scenario(scenario_id, aware_at=aware_at)
+    return agent.run_scenario(scenario_id, aware_at=aware_at, defer=defer)
 
 
 if __name__ == "__main__":
