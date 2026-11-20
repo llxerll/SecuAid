@@ -62,13 +62,26 @@ class TestWebApp(unittest.TestCase):
     def test_index_page(self):
         status, body = http("/")
         self.assertEqual(status, 200)
-        self.assertIn("인시던트 노트", body)
+        # 리브랜딩: 실드메이트 72 / ShieldMate 72
+        self.assertIn("실드메이트 72", body)
+        self.assertIn("ShieldMate 72", body)
+        self.assertIn('href="/static/logo.png"', body)          # 파비콘
+        self.assertIn('src="/static/logo.png"', body)           # 좌상단 로고
+        self.assertIn("중소·소호 기업 보안사고 초동대응 파트너", body)
+        self.assertEqual(body.count('class="strength"'), 4)     # 4대 강점 스트립
+        self.assertEqual(body.count('class="b-tab'), 3)         # 대응 보드 3탭
+        self.assertEqual(body.count('class="m-tab'), 4)         # 모바일 4탭
+        self.assertIn('data-tab="3"', body)
 
     def test_static_assets(self):
         for path in ("/static/app.js", "/static/style.css"):
             status, body = http(path)
             self.assertEqual(status, 200, path)
             self.assertGreater(len(body), 500)
+        status, logo = http("/static/logo.png", raw=True)
+        self.assertEqual(status, 200)
+        self.assertTrue(logo.startswith(b"\x89PNG"))
+        self.assertGreater(len(logo), 2000)
 
     def test_html_ids_match_js(self):
         """JS가 참조하는 DOM id가 HTML에 모두 존재해야 화면이 깨지지 않는다."""
@@ -92,10 +105,13 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(len(data["deep"]), 5)  # BEC·ATO가 S1을 공유한다
 
     def test_mobile_css_unsticks_chat(self):
+        """모바일에서 sticky 가 스크롤을 막지 않고, 한 화면씩 전환하는 규칙이 있는지."""
         _, css = http("/static/style.css")
-        self.assertIn("@media (max-width: 1280px)", css)
-        self.assertIn("position: static", css)
-        for token in (".cat-chip", ".viz-frame", "100vw" if False else "max-width: 640px"):
+        self.assertIn("@media (max-width: 900px)", css)
+        self.assertIn(".chat-panel { position: static; }", css)
+        self.assertIn('body[data-view="chat"] .board-panel { display: none; }', css)
+        self.assertIn('body[data-view="board"] .chat-panel { display: none; }', css)
+        for token in (".cat-chip", ".viz-frame", "max-width: 640px", "overflow-x: hidden"):
             self.assertIn(token, css)
 
     def test_category_chips_in_html(self):

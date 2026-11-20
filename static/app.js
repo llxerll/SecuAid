@@ -1,6 +1,8 @@
-/* 인시던트 노트 — 화면 로직 (의존성 없음) · v0.5
+/* 실드메이트 72 (ShieldMate 72) — 화면 로직 (의존성 없음) · v0.7
    - 서버리스(Vercel) 대응: 사건 상태 토큰(state)을 브라우저가 보관하고 매 요청에 실어 보낸다.
-   - 10대 사고 유형 선택기, 유형별 즉답 가이드(Quick Answer), 사건 보드 차트(Visualization). */
+   - 10대 사고 유형 선택기, 유형별 즉답 가이드(Quick Answer), 사건 보드 차트(Visualization).
+   - 탭 워크스페이스: PC 는 대화 + 대응 보드(3탭), 모바일(≤900px)은 상단 탭으로 한 화면씩.
+   - 증거 첨부(.csv/.eml): 브라우저에서 읽어(UTF-8→EUC-KR 재시도) 대화로 보낸다. */
 const S = { sid: null, board: null, busy: false, replaying: false, stopReplay: false,
             state: null, cats: [], cat: null, viz: null };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -8,7 +10,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const STORE_KEY = "incident-note:v05";
+const STORE_KEY = "shieldmate72:v1";
+const VIEW_KEY = "shieldmate72:view";
 
 function persist() {
   try {
@@ -58,14 +61,29 @@ async function fetchDoc(path) {
   return res;
 }
 
+function filenameFrom(res, fallback) {
+  // 서버가 보내는 filename*=UTF-8''…(한글 제목)을 우선 쓰고, 없으면 ASCII 이름.
+  const cd = res.headers.get("Content-Disposition") || "";
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if (star) { try { return decodeURIComponent(star[1].trim()); } catch (e) { /* 아래로 */ } }
+  const plain = /filename="?([^";]+)"?/i.exec(cd);
+  return plain ? plain[1].trim() : fallback;
+}
+
 async function downloadFile(path, filename) {
   try {
     const res = await fetchDoc(path);
-    const blob = await res.blob();
+    const buf = await res.arrayBuffer();          // 바이너리를 그대로 받아 Blob 으로
+    const type = res.headers.get("Content-Type") || "application/octet-stream";
+    const blob = new Blob([buf], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    a.href = url;
+    a.download = filenameFrom(res, filename);
+    a.rel = "noopener";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+    if (blob.size < 512) say("system", "내려받은 파일이 비어 있습니다. 다시 시도해 주세요.");
   } catch (e) {
     say("system", "다운로드 실패: " + e.message);
   }
@@ -80,6 +98,102 @@ function setBusy(on, msg = "") {
   $("vizBtn").disabled = on;
   $("replay").textContent = S.replaying ? "■ 재생 정지" : "▶ 단계별 재생";
   $("typing").textContent = on ? msg || "처리 중…" : "";
+}
+
+/* ---------------------------------------------------------------- 탭 · 화면 전환 */
+const BOARD_TAB_IDS = { "1": "tab-1", "2": "tab-2", "3": "tab-3" };
+const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
+
+function setBoardTab(n, opts = {}) {
+  const tab = BOARD_TAB_IDS[String(n)] ? String(n) : "1";
+  document.body.dataset.boardTab = tab;
+  document.querySelectorAll(".b-tab").forEach((b) => {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle("is-on", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  Object.entries(BOARD_TAB_IDS).forEach(([k, id]) => { const el = $(id); if (el) el.hidden = k !== tab; });
+  document.querySelectorAll(".m-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === tab));
+  if (opts.remember !== false && !isMobile()) { try { sessionStorage.setItem(VIEW_KEY, tab); } catch (e) { /* noop */ } }
+}
+
+function setView(v, opts = {}) {
+  const view = String(v || "1");
+  if (view === "chat") {
+    document.body.dataset.view = "chat";
+    document.querySelectorAll(".m-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === "chat"));
+    try { sessionStorage.setItem(VIEW_KEY, "chat"); } catch (e) { /* noop */ }
+    return;
+  }
+  document.body.dataset.view = "board";
+  setBoardTab(view, opts);
+  try { sessionStorage.setItem(VIEW_KEY, view); } catch (e) { /* noop */ }
+}
+
+function restoreView() {
+  let view = null;
+  try { view = sessionStorage.getItem(VIEW_KEY); } catch (e) { view = null; }
+  setView(view || (isMobile() ? "chat" : "1"), { remember: false });
+}
+
+function setBadge(id, value, title) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = String(value);
+  el.title = title || "";
+  el.classList.toggle("hot", Number(value) > 0);
+}
+
+/* ---------------------------------------------------------------- 증거 첨부 */
+function decodeBytes(bytes) {
+  let text = new TextDecoder("utf-8").decode(bytes);
+  if (text.indexOf("\uFFFD") === -1) return text;
+  try {                                    // 오래된 메일 원본은 EUC-KR 인 경우가 많다
+    const kr = new TextDecoder("euc-kr").decode(bytes);
+    if (kr.indexOf("\uFFFD") === -1) return kr;
+  } catch (e) { /* 브라우저가 euc-kr 을 지원하지 않으면 UTF-8 결과를 쓴다 */ }
+  return text;
+}
+
+async function attachFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  if (S.busy) { say("system", "지금 처리 중입니다. 끝난 뒤 다시 첨부해 주세요."); return; }
+  const loaded = [];
+  for (const f of files) {
+    try {
+      if (f.size > 8 * 1024 * 1024) { say("system", `${f.name} 은(는) 8MB 를 넘어 건너뜁니다.`); continue; }
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      loaded.push({ name: f.name, text: decodeBytes(bytes) });
+    } catch (e) {
+      say("system", `파일을 읽지 못했습니다: ${f.name}`);
+    }
+  }
+  if (!loaded.length) return;
+  $("attachInfo").textContent = loaded.map((x) => x.name).join(", ");
+  const emls = loaded.filter((x) => /\.eml$/i.test(x.name));
+  const logs = loaded.filter((x) => !/\.eml$/i.test(x.name));
+  if (logs.length) {
+    await sendText(logs.map((x) => x.text).join("\n\n"), {
+      label: logs.map((x) => x.name).join(", "),
+      attachment: logs.map((x) => `### ${x.name}\n${x.text}`).join("\n\n"),
+      busy: "로그 판독 중…",
+    });
+  }
+  for (const eml of emls) {
+    await sendText(eml.text, { label: eml.name, attachment: eml.text, busy: "메일 원본 판독 중…" });
+  }
+}
+
+function bindQuickChips() {
+  const box = $("quickChips");
+  if (!box) return;
+  box.addEventListener("click", (e) => {
+    const chip = e.target.closest(".quick");
+    if (!chip || S.busy) return;
+    $("input").value = chip.dataset.q || "";
+    $("input").focus();
+  });
 }
 
 function fmt(text) {
@@ -124,6 +238,7 @@ async function init() {
     say("system", "서버 상태를 읽지 못했습니다: " + e.message);
   }
 
+  restoreView();
   const saved = restorePoint();
   if (saved) {
     try {
@@ -139,7 +254,7 @@ async function init() {
     }
   }
   await newSession();
-  say("system", "사고 유형을 고르거나 상황을 설명하세요. 로그(CSV)·메일 원본(.eml)을 붙여넣어도 됩니다.");
+  say("system", "사고 유형을 고르거나 상황을 설명하세요. 로그(CSV)·메일 원본(.eml)을 붙여넣거나 아래에서 첨부해도 됩니다.");
 }
 
 async function newSession() {
@@ -169,13 +284,13 @@ async function retryOnce(fn) {
   }
 }
 
-async function send() {
-  const text = $("input").value.trim();
+async function sendText(raw, opts = {}) {
+  const text = String(raw || "").trim();
   if (!text || S.busy) return;
-  $("input").value = "";
-  say("user", text);
+  if (opts.label) say("user", `📎 ${opts.label} 첨부`, opts.attachment || null);
+  else say("user", text);
   await ensureSession();
-  setBusy(true, "로그·메일 판독 중…");
+  setBusy(true, opts.busy || "로그·메일 판독 중…");
   try {
     const data = await retryOnce(() => api(`/api/${S.sid}/message`, { method: "POST", body: JSON.stringify({ text }) }));
     S.board = data.board;
@@ -186,6 +301,13 @@ async function send() {
   } finally {
     setBusy(false);
   }
+}
+
+async function send() {
+  const text = $("input").value.trim();
+  if (!text || S.busy) return;
+  $("input").value = "";
+  await sendText(text);
 }
 
 async function runScenario() {
@@ -261,7 +383,8 @@ async function makeDocs() {
     const data = await api(`/api/${S.sid}/docs`, { method: "POST", body: JSON.stringify({}) });
     S.board = data.board;
     render(data.board);
-    say("bot", `문서 ${Object.keys(data.docs || {}).length}종을 만들었습니다. 발송은 사람이 합니다(초안까지만).`);
+    say("bot", `문서 ${Object.keys(data.docs || {}).length}종을 만들었습니다. 발송은 사람이 합니다(초안까지만). 문서 탭에서 MD·DOCX·ZIP으로 내려받으세요.`);
+    setView("3", { remember: false });
   } catch (e) {
     say("system", "오류: " + e.message);
   } finally {
@@ -441,6 +564,19 @@ function render(b) {
   renderViz(b);
 
   $("dontdo").innerHTML = (b.dont_do || []).map((d) => `<li>${esc(d)}</li>`).join("");
+
+  // 탭 배지 — 한눈에 남은 일·근거·문서 수를 보여 준다
+  const nActions = (b.actions || []).length;
+  const nDue = ((b.deadlines || {}).items || []).filter((x) => x.status === "해당").length;
+  const nFindings = (b.findings || []).length;
+  const nDocs = (b.docs || []).length;
+  const nSources = (b.sources || []).length;
+  setBadge("badgeTab1", nActions, `지금 할 일 ${nActions}개 · 해당 기한 ${nDue}개`);
+  setBadge("badgeTab2", nFindings, `탐지 ${nFindings}건 · 근거 ${nSources}건`);
+  setBadge("badgeTab3", nDocs, `문서 ${nDocs}종`);
+  setBadge("mBadge1", nActions, `지금 할 일 ${nActions}개 · 해당 기한 ${nDue}개`);
+  setBadge("mBadge2", nFindings, `탐지 ${nFindings}건`);
+  setBadge("mBadge3", nDocs, `문서 ${nDocs}종`);
   $("phaseLabel").textContent = b.phase ? `${b.phase.window || ""} ${b.phase.elapsed_minutes != null ? "· 인지 후 " + elapsed(b.phase.elapsed_minutes) : ""}` : "";
 
   const warn = document.createElement("div");
@@ -528,13 +664,13 @@ function renderFacts(b) {
 function renderDocs(b) {
   const docs = b.docs || [];
   $("docs").innerHTML = docs.map((d) => `<div class="doc">
-      <span>${esc(d.title)}</span>
-      <span>
+      <div class="doc-title">${esc(d.title)}</div>
+      <div class="doc-tools">
         <button data-doc="${esc(d.id)}">미리보기</button>
         <button data-md="${esc(d.id)}">MD</button>
         <button data-docx="${esc(d.id)}">DOCX</button>
-      </span>
-    </div>`).join("") || `<div class="hint">[문서 초안 생성]을 누르면 통지문·신고서 초안이 만들어집니다.</div>`;
+      </div>
+    </div>`).join("") || `<div class="hint">[문서 초안 생성]을 누르면 통지문·신고서가 만들어지고, MD·DOCX·ZIP으로 내려받을 수 있습니다.</div>`;
   $("zipAll").classList.toggle("hidden", !docs.length);
   $("docs").querySelectorAll("button[data-doc]").forEach((btn) => {
     btn.onclick = () => previewDoc(btn.dataset.doc);
@@ -575,6 +711,18 @@ function renderSources(b) {
   $("sources").innerHTML = html || `<div class="hint">Liner 검색 근거가 여기에 표시됩니다.</div>`;
 }
 
+document.querySelectorAll(".b-tab").forEach((b) => {
+  b.onclick = () => setBoardTab(b.dataset.tab);
+});
+document.querySelectorAll(".m-tab").forEach((b) => {
+  b.onclick = () => setView(b.dataset.tab === "chat" ? "chat" : b.dataset.tab);
+});
+$("fileInput").addEventListener("change", (e) => {
+  const files = e.target.files;
+  attachFiles(files);
+  e.target.value = "";
+});
+bindQuickChips();
 $("send").onclick = send;
 $("input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
@@ -606,7 +754,7 @@ $("modalDocx").onclick = () => {
 };
 $("zipAll").onclick = (e) => {
   e.preventDefault();
-  downloadFile(`/api/${S.sid}/download/zip`, `incident-note-documents.zip`);
+  downloadFile(`/api/${S.sid}/download/zip`, `ShieldMate72_documents.zip`);
 };
 $("makeDocs").onclick = makeDocs;
 $("newCase").onclick = async () => {

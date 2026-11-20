@@ -71,6 +71,36 @@ class TestLiveLiner(unittest.TestCase):
         self.assertTrue(viz["ok"], viz.get("reason"))
         self.assertIn("<html", viz["html"][:400].lower())
 
+    def test_s1_scenario_live(self):
+        """S1 전체(5단계 + 문서)를 실제 Liner 로 — 판정·기한·브리핑·문서가 살아 있는지."""
+        from incident_note.agent import Agent
+        from incident_note.docs import Document, to_docx
+
+        a = Agent(client=self.client)
+        board = a.run_scenario("s1_bec_account_change")
+        self.assertEqual(board["api"]["mode"], "liner")
+        self.assertEqual(board["severity"]["level"], "P1")
+        self.assertTrue(board["reply"])
+        self.assertGreaterEqual(len(board["deadlines"]["items"]), 2)
+        docs = a.compose_docs()
+        self.assertGreaterEqual(len(docs), 10)
+        doc = a.case.docs["tpl_intrusion_report"]
+        data = to_docx(Document(doc["id"], doc["title"], doc["kind"], doc["body"]))
+        self.assertTrue(data.startswith(b"PK"))
+
+    def test_s4_ransom_scenario_live(self):
+        """S4 랜섬웨어 전체 — P1 고정·몸값 지불 금지·문서 구성."""
+        from incident_note.agent import Agent
+
+        a = Agent(client=self.client)
+        board = a.run_scenario("s4_ransomware")
+        self.assertEqual(board["classification"]["type"], "ransom")
+        self.assertEqual(board["severity"]["level"], "P1")
+        self.assertTrue(any("몸값" in d for d in board["dont_do"]))
+        ids = {d["id"] for d in board["docs"]}
+        self.assertIn("tpl_ransom_report", ids)
+        self.assertIn("T7_staff_ransom", ids)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

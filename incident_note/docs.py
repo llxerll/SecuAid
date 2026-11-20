@@ -25,6 +25,14 @@ from .timeutil import kst_label, now_utc, utc_label
 DATA = Path(__file__).resolve().parent.parent / "data"
 UNKNOWN = "미확인"
 
+# ---------------------------------------------------------------- 브랜드
+BRAND_KO = "실드메이트 72"
+BRAND_EN = "ShieldMate 72"
+BRAND_SUBTITLE = "중소·소호 기업 보안사고 초동대응 파트너"
+DOCX_NOTICE = f"{BRAND_EN} 초동대응 초안 — 발송·제출 전 〔미확인〕 항목 확인"
+FONT_LATIN = "Malgun Gothic"       # Windows PC Word/한컴에서 한글·기호가 깨지지 않게
+FONT_EA = "맑은 고딕"
+
 
 @dataclass
 class Document:
@@ -311,7 +319,8 @@ def _recipients_for(key: str, case: Case) -> str:
 
 
 def _header(title: str, case: Case, purpose: str) -> str:
-    return (f"{title}\n사건번호: {case.id} / 기준: {kst_label(case.aware_at) if case.aware_at else UNKNOWN}\n"
+    return (f"{title}\n{BRAND_KO} · {BRAND_EN} — 초동대응 초안(발송·제출 전 〔미확인〕 확인)\n"
+            f"사건번호: {case.id} / 기준: {kst_label(case.aware_at) if case.aware_at else UNKNOWN}\n"
             f"용도: {purpose}\n" + "-" * 60 + "\n")
 
 
@@ -460,16 +469,522 @@ def _yes_no(v) -> str:
 
 
 def to_docx(doc: Document) -> bytes | None:
-    """DOCX 내보내기(선택). python-docx가 없으면 None."""
+    """DOCX 내보내기 — Windows PC Word·한컴오피스에서 한글이 깨지지 않는 보고서형 문서.
+
+    - 맑은 고딕(Malgun Gothic)을 ascii/hAnsi/eastAsia/cs 모든 슬롯에 명시한다
+      (테마 폰트 속성은 지운다 — 테마가 명시 폰트를 이기는 경우가 있다).
+    - `■`·`1.` 소제목은 Heading, `- `/`  - ` 는 실제 불릿, `|` 표는 Word 표로 만든다.
+    - 〔미확인: ...〕 는 볼드+붉은색+배경으로 강조해 발송 전에 눈에 띄게 한다.
+    - A4·여백 20mm·상단 브랜드 안내·바닥글(페이지 번호)를 붙인다.
+
+    python-docx가 없으면 None.
+    """
     try:
+        from io import BytesIO
+
         from docx import Document as Docx  # type: ignore
+        from docx.enum.section import WD_SECTION_START  # noqa: F401
+        from docx.enum.table import WD_TABLE_ALIGNMENT
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        from docx.shared import Mm, Pt, RGBColor
     except Exception:
         return None
+
     d = Docx()
-    d.add_heading(doc.title, level=1)
-    for line in doc.body.splitlines():
-        d.add_paragraph(line)
-    from io import BytesIO
+    _docx_page_setup(d, Mm)
+    _docx_fonts(d, qn)
+    _docx_banner(d, doc, Pt, RGBColor, WD_ALIGN_PARAGRAPH, qn, OxmlElement)
+    _docx_render_body(d, doc.body, doc.title, Pt, RGBColor, qn, OxmlElement,
+                      WD_TABLE_ALIGNMENT, WD_ALIGN_PARAGRAPH)
+    _docx_footer(d, Pt, RGBColor, qn, OxmlElement, WD_ALIGN_PARAGRAPH)
+
     buf = BytesIO()
     d.save(buf)
-    return buf.getvalue()
+    return _patch_font_table(buf.getvalue())
+
+
+# ------------------------------------------------------------------ DOCX 구성
+_PPR_AFTER_SHD = (
+    "w:tabs", "w:suppressAutoHyphens", "w:kinsoku", "w:wordWrap", "w:overflowPunct",
+    "w:topLinePunct", "w:autoSpaceDE", "w:autoSpaceDN", "w:bidi", "w:adjustRightInd",
+    "w:snapToGrid", "w:spacing", "w:ind", "w:contextualSpacing", "w:mirrorIndents",
+    "w:suppressOverlap", "w:jc", "w:textDirection", "w:textAlignment", "w:textboxTightWrap",
+    "w:outlineLvl", "w:divId", "w:cnfStyle", "w:rPr", "w:sectPr", "w:pPrChange",
+)
+_PPR_AFTER_BDR = ("w:shd",) + _PPR_AFTER_SHD
+_RPR_AFTER_SHD = ("w:fitText", "w:vertAlign", "w:rtl", "w:cs", "w:em", "w:lang",
+                  "w:eastAsianLayout", "w:specVanish", "w:oMath")
+_TCPR_AFTER_SHD = ("w:noWrap", "w:tcMar", "w:textDirection", "w:tcFitText", "w:vAlign",
+                   "w:hideMark", "w:headers", "w:cellIns", "w:cellDel", "w:cellMerge",
+                   "w:tcPrChange")
+
+INLINE_RE = re.compile(r"(\*\*.+?\*\*|〔[^〕\n]*〕)")
+HEADING_RE = re.compile(r"^(\d{1,2})\.\s+(.+)$")
+BULLET_RE = re.compile(r"^(\s*)(?:- |· |• )(.*)$")
+
+
+def _docx_font_rpr(rPr, qn) -> None:
+    """rPr 안의 rFonts 를 네 슬롯 모두 맑은 고딕으로 맞춘다(테마 폰트 제거)."""
+    rFonts = rPr.find(qn("w:rFonts"))
+    if rFonts is None:
+        rFonts = rPr.makeelement(qn("w:rFonts"), {})
+        rPr.insert(0, rFonts)
+    for attr in ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme"):
+        if rFonts.get(qn(attr)) is not None:
+            del rFonts.attrib[qn(attr)]
+    rFonts.set(qn("w:ascii"), FONT_LATIN)
+    rFonts.set(qn("w:hAnsi"), FONT_LATIN)
+    rFonts.set(qn("w:eastAsia"), FONT_EA)
+    rFonts.set(qn("w:cs"), FONT_LATIN)
+    rFonts.set(qn("w:hint"), "eastAsia")
+
+
+def _docx_fonts(d, qn) -> None:
+    """Normal·Heading 1~3·docDefaults 에 폰트·언어를 고정한다."""
+    from docx.shared import Pt, RGBColor
+
+    styles = d.styles.element
+    defaults = styles.find(qn("w:docDefaults"))
+    if defaults is not None:
+        rpr_default = defaults.find(qn("w:rPrDefault"))
+        rPr = rpr_default.find(qn("w:rPr")) if rpr_default is not None else None
+        if rPr is not None:
+            _docx_font_rpr(rPr, qn)
+            lang = rPr.find(qn("w:lang"))
+            if lang is None:
+                lang = rPr.makeelement(qn("w:lang"), {})
+                rPr.append(lang)
+            lang.set(qn("w:val"), "ko-KR")
+            lang.set(qn("w:eastAsia"), "ko-KR")
+
+    for name, size, color, bold in (("Normal", 10.5, "0B1B33", False),
+                                    ("Heading 1", 19, "14305C", True),
+                                    ("Heading 2", 13, "1D4ED8", True),
+                                    ("Heading 3", 11.5, "1F3A68", True)):
+        try:
+            st = d.styles[name]
+        except KeyError:
+            continue
+        rPr = st.element.get_or_add_rPr()
+        _docx_font_rpr(rPr, qn)
+        st.font.size = Pt(size)
+        st.font.color.rgb = RGBColor.from_string(color)
+        st.font.bold = bold
+        st.font.name = FONT_LATIN
+        pf = st.paragraph_format
+        if name == "Normal":
+            pf.space_before = Pt(0)
+            pf.space_after = Pt(4)
+            pf.line_spacing = 1.35
+        else:
+            pf.space_before = Pt(14 if name == "Heading 1" else 11)
+            pf.space_after = Pt(5)
+            pf.keep_with_next = True
+
+
+def _docx_page_setup(d, Mm) -> None:
+    sec = d.sections[0]
+    sec.page_width = Mm(210)
+    sec.page_height = Mm(297)
+    sec.top_margin = Mm(20)
+    sec.bottom_margin = Mm(20)
+    sec.left_margin = Mm(20)
+    sec.right_margin = Mm(20)
+    sec.header_distance = Mm(10)
+    sec.footer_distance = Mm(10)
+
+
+def _docx_run(run, qn, size=None, bold=None, italic=None, color=None) -> None:
+    """모든 런에 네 폰트 슬롯을 명시한다(상속·테마에 기대지 않는다)."""
+    from docx.shared import Pt, RGBColor
+
+    rPr = run._element.get_or_add_rPr()
+    _docx_font_rpr(rPr, qn)
+    if size is not None:
+        run.font.size = Pt(size)
+    if bold is not None:
+        run.bold = bold
+    if italic is not None:
+        run.italic = italic
+    if color is not None:
+        run.font.color.rgb = RGBColor.from_string(color)
+
+
+def _shade_run(run, fill: str, qn, OxmlElement) -> None:
+    rPr = run._element.get_or_add_rPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), fill)
+    rPr.insert_element_before(shd, *_RPR_AFTER_SHD)
+
+
+def _shade_paragraph(p, fill: str, qn, OxmlElement) -> None:
+    pPr = p._p.get_or_add_pPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), fill)
+    pPr.insert_element_before(shd, *_PPR_AFTER_SHD)
+
+
+def _left_bar(p, color: str, qn, OxmlElement) -> None:
+    """문단 왼쪽 색 띠 — 경고·브랜드 안내를 눈에 띄게."""
+    pPr = p._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    left = OxmlElement("w:left")
+    left.set(qn("w:val"), "single")
+    left.set(qn("w:sz"), "18")
+    left.set(qn("w:space"), "6")
+    left.set(qn("w:color"), color)
+    pBdr.append(left)
+    pPr.insert_element_before(pBdr, *_PPR_AFTER_BDR)
+
+
+def _bottom_rule(p, color: str, qn, OxmlElement) -> None:
+    pPr = p._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), "8")
+    bottom.set(qn("w:space"), "4")
+    bottom.set(qn("w:color"), color)
+    pBdr.append(bottom)
+    pPr.insert_element_before(pBdr, *_PPR_AFTER_BDR)
+
+
+def _docx_banner(d, doc: Document, Pt, RGBColor, WD_ALIGN_PARAGRAPH, qn, OxmlElement) -> None:
+    """문서 상단 브랜드 안내 — 제품명·부제·초안 경고."""
+    p = d.add_paragraph()
+    p.paragraph_format.space_after = Pt(2)
+    r = p.add_run(f"{BRAND_EN} · {BRAND_KO}")
+    _docx_run(r, qn, size=10, bold=True, color="2563EB")
+    r2 = p.add_run("   " + BRAND_SUBTITLE)
+    _docx_run(r2, qn, size=8.5, color="5B6B84")
+
+    note = d.add_paragraph()
+    note.paragraph_format.space_after = Pt(8)
+    rn = note.add_run(DOCX_NOTICE)
+    _docx_run(rn, qn, size=8.5, bold=True, color="B42318")
+    _bottom_rule(note, "CBD9F2", qn, OxmlElement)
+
+    h = d.add_heading(level=1)
+    hr = h.add_run(doc.title)
+    _docx_run(hr, qn, size=19, bold=True, color="14305C")
+    h.paragraph_format.space_before = Pt(10)
+    h.paragraph_format.space_after = Pt(8)
+
+
+def _docx_footer(d, Pt, RGBColor, qn, OxmlElement, WD_ALIGN_PARAGRAPH) -> None:
+    footer = d.sections[0].footer
+    p = footer.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = p.add_run(f"{BRAND_KO} · {BRAND_EN} — 초동대응 초안 (발송 전 확인) · ")  # noqa: E501
+    _docx_run(r, qn, size=8, color="8494AD")
+    fld = OxmlElement("w:fldSimple")
+    fld.set(qn("w:instr"), " PAGE ")
+    inner = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+    rFonts = OxmlElement("w:rFonts")
+    rFonts.set(qn("w:ascii"), FONT_LATIN)
+    rFonts.set(qn("w:hAnsi"), FONT_LATIN)
+    rFonts.set(qn("w:eastAsia"), FONT_EA)
+    rFonts.set(qn("w:cs"), FONT_LATIN)
+    rPr.append(rFonts)
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), "16")
+    rPr.append(sz)
+    inner.append(rPr)
+    t = OxmlElement("w:t")
+    t.text = "1"
+    inner.append(t)
+    fld.append(inner)
+    p._p.append(fld)
+
+
+def _same_title(text: str, title: str) -> bool:
+    norm = lambda s: re.sub(r"\s+", "", s or "")
+    return norm(text) == norm(title)
+
+
+def _add_inline(p, text: str, qn, OxmlElement, *,
+                size=None, bold=False, italic=None, color=None) -> None:
+    """본문 한 줄을 런으로 — 〔미확인: …〕 는 볼드·붉은색·연한 배경으로 강조."""
+    for part in INLINE_RE.split(text):
+        if not part:
+            continue
+        if part.startswith("〔") and part.endswith("〕"):
+            r = p.add_run(part)
+            _docx_run(r, qn, size=size, bold=True, color="B42318", italic=False)
+            _shade_run(r, "FFF1F2", qn, OxmlElement)
+        elif part.startswith("**") and part.endswith("**") and len(part) > 4:
+            r = p.add_run(part[2:-2])
+            _docx_run(r, qn, size=size, bold=True, italic=italic, color=color)
+        else:
+            r = p.add_run(part)
+            _docx_run(r, qn, size=size, bold=bold or None, italic=italic, color=color)
+
+
+def _docx_paragraph(d, text: str, qn, OxmlElement, *,
+                    size=None, bold=False, italic=None, color=None,
+                    space_after=None, indent=None):
+    from docx.shared import Cm, Pt
+
+    p = d.add_paragraph()
+    if space_after is not None:
+        p.paragraph_format.space_after = Pt(space_after)
+    if indent is not None:
+        p.paragraph_format.left_indent = Cm(indent)
+    _add_inline(p, text, qn, OxmlElement, size=size, bold=bold, italic=italic, color=color)
+    return p
+
+
+def _docx_heading(d, text: str, level: int, qn) -> None:
+    from docx.shared import Pt
+
+    h = d.add_heading(level=level)
+    r = h.add_run(text)
+    _docx_run(r, qn, size={1: 19, 2: 13, 3: 11.5}.get(level, 11), bold=True,
+              color={1: "14305C", 2: "1D4ED8", 3: "1F3A68"}.get(level, "1F3A68"))
+    h.paragraph_format.space_before = Pt({1: 12, 2: 12, 3: 9}.get(level, 9))
+    h.paragraph_format.space_after = Pt(4)
+
+
+def _is_heading_like(text: str) -> bool:
+    """'1. 확인된 사실' 은 소제목, '1. 신고인: …' 은 항목이다."""
+    return len(text) <= 40 and ":" not in text[:24]
+
+
+def _split_field(text: str) -> tuple[str, str] | None:
+    idx = text.find(":")
+    if idx <= 0 or idx > 40:
+        return None
+    return text[:idx].strip(), text[idx + 1:].strip()
+
+
+def _field_paragraph(d, text: str, qn, OxmlElement, *, size=10.5):
+    from docx.shared import Pt
+
+    parts = _split_field(text)
+    if not parts:
+        return _docx_paragraph(d, text, qn, OxmlElement, size=size)
+    label, value = parts
+    p = d.add_paragraph()
+    p.paragraph_format.space_after = Pt(3)
+    lr = p.add_run(label + ":")
+    _docx_run(lr, qn, size=size, bold=True, color="1F3A68")
+    if value:
+        vr = p.add_run(" " + value)
+        _docx_run(vr, qn, size=size, color="0B1B33")
+    return p
+
+
+def _collect_table(lines: list[str], start: int) -> tuple[list[list[str]] | None, int]:
+    """`|` 로 구분된 연속 줄을 표로 모은다(구분선·빈 줄 종료)."""
+    rows: list[list[str]] = []
+    i = start
+    while i < len(lines):
+        raw = lines[i].strip()
+        if not raw:
+            break
+        if re.fullmatch(r"[-=_]{5,}", raw):
+            i += 1
+            continue
+        if "|" not in raw:
+            break
+        cells = [c.strip() for c in raw.strip("|").split("|")]
+        if len(cells) < 2:
+            break
+        rows.append(cells)
+        i += 1
+    if len(rows) < 2:
+        return None, start
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    return rows, i
+
+
+def _docx_table(d, rows: list[list[str]], qn, OxmlElement, *,
+                Pt, Mm, WD_TABLE_ALIGNMENT, WD_ALIGN_PARAGRAPH) -> None:
+    cols = len(rows[0])
+    table = d.add_table(rows=0, cols=cols)
+    try:
+        table.style = "Table Grid"
+    except Exception:  # noqa: BLE001 - 스타일이 없어도 표는 만든다
+        pass
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = True
+
+    # 열 너비 — 글자 길이에 비례(내용 열이 넓게).
+    weights = []
+    for c in range(cols):
+        longest = max((len(r[c]) for r in rows), default=6)
+        weights.append(min(max(longest, 6), 48))
+    total = sum(weights) or 1
+    usable = Mm(170)
+    for c, w in enumerate(weights):
+        table.columns[c].width = int(usable * w / total)
+
+    for r_idx, row in enumerate(rows):
+        tr = table.add_row()
+        if r_idx == 0:
+            trPr = tr._tr.get_or_add_trPr()
+            th = OxmlElement("w:tblHeader")
+            trPr.append(th)
+        for c_idx, value in enumerate(row):
+            cell = tr.cells[c_idx]
+            cell.width = int(usable * weights[c_idx] / total)
+            p = cell.paragraphs[0]
+            p.paragraph_format.space_before = Pt(1)
+            p.paragraph_format.space_after = Pt(1)
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            run = p.add_run(value)
+            _docx_run(run, qn, size=9, bold=(r_idx == 0),
+                      color=("0B1B33" if r_idx == 0 else "26364F"))
+            tcPr = cell._tc.get_or_add_tcPr()
+            shd = OxmlElement("w:shd")
+            shd.set(qn("w:val"), "clear")
+            shd.set(qn("w:color"), "auto")
+            shd.set(qn("w:fill"), "E8F1FF" if r_idx == 0 else ("FBFDFF" if r_idx % 2 else "FFFFFF"))
+            tcPr.insert_element_before(shd, *_TCPR_AFTER_SHD)
+    d.add_paragraph().paragraph_format.space_after = Pt(2)
+
+
+def _docx_render_body(d, body: str, title: str, Pt, RGBColor, qn, OxmlElement,
+                      WD_TABLE_ALIGNMENT, WD_ALIGN_PARAGRAPH) -> None:
+    from docx.shared import Cm, Mm
+
+    lines = (body or "").replace("\r\n", "\n").split("\n")
+    i = 0
+    first = True
+    while i < len(lines):
+        line = lines[i].rstrip()
+        text = line.strip()
+        i += 1
+        if not text:
+            continue
+        if re.fullmatch(r"[-=_]{10,}", text):          # 구분선
+            continue
+        if first:
+            first = False
+            if _same_title(text, title):
+                continue
+        if text.startswith(BRAND_KO) or text.startswith(BRAND_EN):
+            continue
+
+        # 내부 검토용 경계
+        if text.startswith("▼"):
+            p = _docx_paragraph(d, text, qn, OxmlElement, size=9.5, bold=True, color="B45309")
+            _shade_paragraph(p, "FFF7E6", qn, OxmlElement)
+            _left_bar(p, "F59E0B", qn, OxmlElement)
+            continue
+
+        # 표
+        if "|" in text:
+            rows, nxt = _collect_table(lines, i - 1)
+            if rows:
+                _docx_table(d, rows, qn, OxmlElement, Pt=Pt, Mm=Mm,
+                            WD_TABLE_ALIGNMENT=WD_TABLE_ALIGNMENT, WD_ALIGN_PARAGRAPH=WD_ALIGN_PARAGRAPH)
+                i = nxt
+                continue
+
+        # 제목
+        if text.startswith("제목:"):
+            p = d.add_paragraph()
+            p.paragraph_format.space_after = Pt(8)
+            lab = p.add_run("제목  ")
+            _docx_run(lab, qn, size=8.5, bold=True, color="5B6B84")
+            val = p.add_run(text[3:].strip())
+            _docx_run(val, qn, size=11.5, bold=True, color="0B1B33")
+            continue
+
+        # 사건번호·용도 등 머리 정보
+        if text.startswith(("사건번호:", "용도:")):
+            _docx_paragraph(d, text, qn, OxmlElement, size=9, color="5B6B84", space_after=2)
+            continue
+
+        # ■ 소제목 / 항목
+        if text.startswith("■"):
+            content = text.lstrip("■").strip()
+            if _is_heading_like(content):
+                _docx_heading(d, content, 2, qn)
+            else:
+                p = _field_paragraph(d, content, qn, OxmlElement, size=11)
+                _shade_paragraph(p, "EEF4FF", qn, OxmlElement)
+                _left_bar(p, "2563EB", qn, OxmlElement)
+            continue
+
+        # ☐ 발송 전 통과표
+        if text.startswith(("☐", "□")):
+            p = _docx_paragraph(d, text, qn, OxmlElement, size=10.5, color="16243D")
+            p.paragraph_format.left_indent = Cm(0.5)
+            continue
+
+        # 불릿
+        m = BULLET_RE.match(line)
+        if m:
+            depth = 2 if len(m.group(1).replace("\t", "  ")) >= 2 else 1
+            style = "List Bullet 2" if depth == 2 else "List Bullet"
+            p = d.add_paragraph(style=style)
+            p.paragraph_format.space_after = Pt(2)
+            _add_inline(p, m.group(2), qn, OxmlElement, size=10.5)
+            continue
+
+        # 숫자 소제목 / 항목
+        m = HEADING_RE.match(text)
+        if m:
+            content = m.group(2).strip()
+            if _is_heading_like(content):
+                _docx_heading(d, f"{m.group(1)}. {content}", 2, qn)
+            else:
+                _field_paragraph(d, text, qn, OxmlElement)
+            continue
+
+        # ※ 안내문
+        if text.startswith("※"):
+            _docx_paragraph(d, text, qn, OxmlElement, size=9, italic=True, color="5B6B84")
+            continue
+
+        _docx_paragraph(d, text, qn, OxmlElement, size=10.5, color="16243D")
+
+
+def _patch_font_table(data: bytes) -> bytes:
+    """word/fontTable.xml 에 맑은 고딕(대체 이름 Malgun Gothic)을 등록한다.
+
+    한글 Windows 기본 글꼴이지만, 문서에 이름이 등록돼 있지 않으면 일부 뷰어가
+    다른 글꼴로 대체하며 자모가 벌어지거나 깨져 보인다.
+    """
+    import io
+    import zipfile
+
+    try:
+        from docx.oxml import parse_xml
+        from docx.oxml.ns import nsdecls
+        from lxml import etree
+    except Exception:  # noqa: BLE001 - 없으면 원본 그대로
+        return data
+
+    wanted = [(FONT_EA, FONT_LATIN, "81"), (FONT_LATIN, FONT_EA, "00")]
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            blob = zin.read(info.filename)
+            if info.filename == "word/fontTable.xml":
+                try:
+                    root = parse_xml(blob)
+                    have = {f.get("{%s}name" % root.nsmap.get("w", "")) for f in root}
+                    for name, alt, charset in wanted:
+                        if name in have or root.nsmap.get("w") is None:
+                            continue
+                        el = parse_xml(
+                            f'<w:font {nsdecls("w")} w:name="{name}">'
+                            f'<w:altName w:val="{alt}"/><w:charset w:val="{charset}"/>'
+                            '<w:family w:val="swiss"/><w:pitch w:val="variable"/></w:font>')
+                        root.append(el)
+                    blob = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                except Exception:  # noqa: BLE001 - 손대지 않고 원본 유지
+                    pass
+            zout.writestr(info, blob)
+    return out.getvalue()

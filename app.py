@@ -1,4 +1,4 @@
-"""인시던트 노트 웹 앱 — 사건 보드 + 대화형 에이전트.
+"""실드메이트 72 (ShieldMate 72) 웹 앱 — 보안사고 초동대응 사건 보드 + 대화형 에이전트.
 
 실행: python app.py  (기본 http://127.0.0.1:8000, PORT 환경변수로 변경)
 Vercel: api/index.py 가 이 모듈의 `app` 을 노출한다(서버리스).
@@ -12,9 +12,11 @@ Vercel: api/index.py 가 이 모듈의 `app` 을 노출한다(서버리스).
 from __future__ import annotations
 
 import os
+import re
 import threading
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import Flask, Response, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
@@ -33,6 +35,9 @@ SESSIONS: dict[str, Agent] = {}
 DATA_DIR = ROOT / "data"
 LOCK = threading.Lock()
 MAX_STATE_CHARS = 4_000_000          # 토큰 폭주 방지(약 4MB)
+
+BRAND_KO = "실드메이트 72"
+BRAND_EN = "ShieldMate 72"
 
 
 # --------------------------------------------------------------------------- 세션·상태
@@ -98,6 +103,8 @@ def health():
     status = client.status()
     return _ok(payload={
         "ok": True,
+        "brand": {"name": BRAND_KO, "en": BRAND_EN,
+                  "subtitle": "중소·소호 기업 보안사고 초동대응 파트너"},
         "liner": status,
         "files_ok": DATA_DIR.exists() and (DATA_DIR / "playbook_tree.json").exists(),
         "features": {"quick_answer": status.get("available", False),
@@ -237,6 +244,26 @@ def make_docs(sid: str):
     return _ok(agent, {"docs": docs, "board": agent.board()})
 
 
+def _safe_name(text: str) -> str:
+    """파일명에 쓸 수 없는 문자만 바꾼다 — 한글 제목을 그대로 살린다."""
+    return re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", text or "").strip(" ._") or "document"
+
+
+def _attachment(korean_name: str, fallback: str) -> dict:
+    """한글 파일명은 filename*=UTF-8'' 로, 옛 클라이언트용 ASCII 이름은 filename= 으로."""
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", fallback) or "download"
+    return {
+        "Content-Disposition":
+            f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(korean_name, safe="")}',
+        "Cache-Control": "no-store",
+    }
+
+
+def _doc_filename(doc_id: str, doc: dict, ext: str) -> str:
+    title = _safe_name(doc.get("title") or doc_id)
+    return f"실드메이트72_{title}_{doc_id}.{ext}"
+
+
 @app.get("/api/<sid>/doc/<doc_id>")
 def get_doc(sid: str, doc_id: str):
     agent = _agent(sid, _body())
@@ -246,7 +273,7 @@ def get_doc(sid: str, doc_id: str):
     if not doc:
         return "문서가 없습니다. 먼저 문서를 생성해 주세요.", 404
     return Response(doc["body"], mimetype="text/markdown; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="{doc_id}.md"'})
+                    headers=_attachment(_doc_filename(doc_id, doc, "md"), f"ShieldMate72_{doc_id}.md"))
 
 
 @app.post("/api/<sid>/download/zip")
@@ -277,7 +304,7 @@ def get_docx(sid: str, doc_id: str):
     if data is None:
         return "python-docx가 설치되어 있지 않습니다. Markdown으로 받아 주세요.", 501
     return Response(data, mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    headers={"Content-Disposition": f'attachment; filename="{doc_id}.docx"'})
+                    headers=_attachment(_doc_filename(doc_id, doc, "docx"), f"ShieldMate72_{doc_id}.docx"))
 
 
 @app.get("/api/<sid>/docs.zip")
@@ -302,9 +329,9 @@ def get_docs_zip(sid: str):
             data = to_docx(Document(doc["id"], doc["title"], doc["kind"], doc["body"]))
             if data:
                 zf.writestr(f"{base}.docx", data)
-    name = f"{agent.case.id}_documents.zip"
+    name = f"실드메이트72_사건문서_{agent.case.id}.zip"
     return Response(buf.getvalue(), mimetype="application/zip",
-                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+                    headers=_attachment(name, f"ShieldMate72_documents_{agent.case.id}.zip"))
 
 
 @app.get("/api/<sid>/report")
@@ -318,7 +345,8 @@ def report(sid: str):
 
 def _report_text(agent: Agent) -> str:
     board = agent.board()
-    lines = [f"# {board['case']['title']} ({board['case']['id']})",
+    lines = [f"# {BRAND_KO} ({BRAND_EN}) — 사건 리포트",
+             f"> {board['case']['title']} ({board['case']['id']})",
              f"- 인지: {board['case']['aware_at']} / 모드: {board['case']['mode']}",
              f"- 유형: {(board.get('category') or {}).get('name', '미선택')}",
              f"- 심각도: {board['severity']['level']} {board['severity']['name']} ({board['severity']['evidence_level']})",

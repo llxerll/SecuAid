@@ -1,4 +1,4 @@
-"""인시던트 노트 — CLI 데모 실행기.
+"""실드메이트 72 (ShieldMate 72) — CLI 데모 실행기.
 
 웹 UI 없이도 한 사건을 끝까지 돌려 보고 결과를 마크다운으로 남긴다.
 Liner 키가 없으면 자동으로 규칙 기반 모드로 실행된다.
@@ -76,7 +76,7 @@ def render_markdown(board: dict) -> str:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="인시던트 노트 CLI 데모")
+    ap = argparse.ArgumentParser(description="실드메이트 72 CLI 데모")
     ap.add_argument("--scenario", default="s1_bec_account_change")
     ap.add_argument("--category", default=None,
                     help="10대 사고 유형 id/번호 (예: CAT04_RANSOMWARE 또는 4) — 시나리오 없이 공통 흐름 실행")
