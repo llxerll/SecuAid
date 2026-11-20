@@ -621,7 +621,7 @@ class Agent:
                  "reason": "Liner 키가 없어 차트를 만들 수 없습니다. 아래 요약 카드로 대체합니다."}
         if self.client.available:
             try:
-                res = self.client.visualize(query, appearance="dark")
+                res = self.client.visualize(query, appearance="light")
                 if res.get("ok"):
                     entry.update({"ok": True, "status": "live", "html": res["html"],
                                   "theme": res.get("theme", ""), "description": res.get("description", ""),
@@ -752,6 +752,7 @@ class Agent:
         return {
             "reply": reply,
             "case": {**self.case.summary(), "aware_at": self.case.aware_label(),
+                     "aware_iso": self.case.aware_at.isoformat() if self.case.aware_at else None,
                      "mode": "liner" if self.client.available else "offline"},
             "severity": self.sev.to_dict(),
             "severity_history": self.sev_history[-6:],

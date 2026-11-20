@@ -68,10 +68,14 @@ class TestWebApp(unittest.TestCase):
         self.assertIn('href="/static/logo.png"', body)          # 파비콘
         self.assertIn('src="/static/logo.png"', body)           # 좌상단 로고
         self.assertIn("중소·소호 기업 보안사고 초동대응 파트너", body)
-        self.assertEqual(body.count('class="strength"'), 4)     # 4대 강점 스트립
-        self.assertEqual(body.count('class="b-tab'), 3)         # 대응 보드 3탭
-        self.assertEqual(body.count('class="m-tab'), 4)         # 모바일 4탭
-        self.assertIn('data-tab="3"', body)
+        # v0.8 관제 일지 디자인: 첫 화면(유형 고르기) → 사건 워크스페이스
+        self.assertIn('data-stage="start"', body)
+        self.assertIn('id="startView"', body)                    # 첫 화면
+        self.assertIn('id="clock"', body)                        # 72시간 시계
+        self.assertEqual(body.count('role="tab"'), 4)            # 할 일 · 타임라인 · 문서 · 근거
+        self.assertEqual(body.count('<button class="m-tab'), 4)         # 모바일 하단 4탭
+        self.assertIn('data-tab="side"', body)
+        self.assertIn('id="sidePane"', body)
 
     def test_static_assets(self):
         for path in ("/static/app.js", "/static/style.css"):
