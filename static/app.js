@@ -1,4 +1,4 @@
-/* 실드메이트 72 (ShieldMate 72) — 화면 로직 (의존성 없음) · v0.8
+/* 시큐에이드 (SecuAid) — 화면 로직 (의존성 없음) · v0.8
    - 판정은 즉시, Liner 문장은 뒤따라: /message(defer) → /enrich(브리핑·가이드) · /law(법령 재확인, 병렬)
    - 상태 토큰(state)을 바꾸는 요청은 한 줄로 세운다(queue) — 동시 요청이 토큰을 갈라놓지 않게.
    - 72시간 시계: 인지 시각 기준 구간·다음 법정 기한 카운트다운을 1초마다 갱신.
@@ -10,7 +10,7 @@ const S = {
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const STORE_KEY = "shieldmate72:v2";
+const STORE_KEY = "secuaid:v1";
 const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
 
 /* ---------------------------------------------------------------- 통신 */
@@ -504,9 +504,44 @@ async function showViz() {
     $("vizBtn").textContent = S.viz ? "차트 다시 보기" : "차트로 보기";
   }
 }
+/* 차트는 Liner가 만든 외부 HTML이다. 기본은 격리(sandbox="allow-scripts", 고유 출처 없음)로 띄워
+   이 화면의 상태 토큰·세션 저장소에 닿지 못하게 한다. 격리 상태에서 흔히 깨지는 저장소·쿠키 접근은
+   메모리 대체물로 바꾸고, 그려졌는지 여부를 부모에게 알려 준다. 실패할 때만 사용자가 직접 격리를 해제한다. */
+const VIZ_SHIM = `<script>(function(){
+function M(){var d={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}
+["localStorage","sessionStorage"].forEach(function(n){try{window[n].getItem("_")}catch(e){try{Object.defineProperty(window,n,{value:M(),configurable:true})}catch(_){}}});
+try{document.cookie}catch(e){try{Object.defineProperty(document,"cookie",{get:function(){return""},set:function(){},configurable:true})}catch(_){}}
+var errs=[];window.addEventListener("error",function(ev){errs.push(String(ev.message||"error").slice(0,120))});
+window.addEventListener("load",function(){setTimeout(function(){var b=document.body;
+parent.postMessage({type:"secuaid-viz",errors:errs.slice(0,3),text:b?b.innerText.trim().length:0,
+nodes:b?b.querySelectorAll("svg,canvas,table,img").length:0},"*")},1500)});
+})();<\/script>`;
+
+function vizDoc(html) {
+  const m = /<head[^>]*>/i.exec(html);
+  return m ? html.slice(0, m.index + m[0].length) + VIZ_SHIM + html.slice(m.index + m[0].length) : VIZ_SHIM + html;
+}
+
+function setVizIsolation(isolated) {
+  $("vizFrame").setAttribute("sandbox", isolated ? "allow-scripts" : "allow-scripts allow-same-origin");
+  $("vizWarn").classList.add("hidden");
+  $("vizUnsafe").classList.add("hidden");
+}
+
+window.addEventListener("message", (e) => {
+  if (e.source !== $("vizFrame").contentWindow || !e.data || e.data.type !== "secuaid-viz") return;
+  const broken = (e.data.errors || []).length > 0 || (!e.data.text && !e.data.nodes);
+  if (broken && $("vizFrame").getAttribute("sandbox") === "allow-scripts") {
+    $("vizWarn").textContent = "격리 상태에서 차트가 제대로 그려지지 않았습니다" + ((e.data.errors || [])[0] ? ` (${e.data.errors[0]})` : "");
+    $("vizWarn").classList.remove("hidden");
+    $("vizUnsafe").classList.remove("hidden");
+  }
+});
+
 function openViz() {
   if (!S.viz) return;
-  $("vizFrame").srcdoc = S.viz;
+  setVizIsolation(true);
+  $("vizFrame").srcdoc = vizDoc(S.viz);
   $("vizTheme").textContent = ((S.board || {}).viz || {}).theme || "Liner Visualization";
   $("vizTitle").textContent = "사건 보드 차트 — " + (((S.board || {}).category || {}).name || "대응 타임라인");
   $("vizModal").classList.remove("hidden");
@@ -814,7 +849,7 @@ $("stopReplay").onclick = () => { S.stopReplay = true; };
 $("guideBtn").onclick = refreshGuide;
 $("vizBtn").onclick = showViz;
 $("makeDocs").onclick = makeDocs;
-$("zipAll").onclick = () => downloadFile(`/api/${S.sid}/download/zip`, "ShieldMate72_documents.zip");
+$("zipAll").onclick = () => downloadFile(`/api/${S.sid}/download/zip`, "SecuAid_documents.zip");
 $("modalDownload").onclick = () => { const id = $("modalTitle").dataset.doc; if (id) downloadFile(`/api/${S.sid}/download/${id}`, `${id}.md`); };
 $("modalDocx").onclick = () => { const id = $("modalTitle").dataset.doc; if (id) downloadFile(`/api/${S.sid}/download/${id}.docx`, `${id}.docx`); };
 $("modalCopy").onclick = async () => {
@@ -825,6 +860,11 @@ $("modalCopy").onclick = async () => {
 const closeModals = () => { $("modal").classList.add("hidden"); $("vizModal").classList.add("hidden"); };
 $("modalClose").onclick = closeModals;
 $("vizClose").onclick = closeModals;
+$("vizUnsafe").onclick = () => {
+  if (!S.viz) return;
+  setVizIsolation(false);
+  $("vizFrame").srcdoc = vizDoc(S.viz);
+};
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModals(); });
 $("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModals(); });
 $("vizModal").addEventListener("click", (e) => { if (e.target.id === "vizModal") closeModals(); });

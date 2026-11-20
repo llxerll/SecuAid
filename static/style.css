@@ -1,4 +1,4 @@
-/* 실드메이트 72 — 관제 일지(Command Log) 디자인 · v0.8
+/* 시큐에이드 — 관제 일지(Command Log) 디자인 · v0.8
    종이 바탕 + 잉크 상단 레일 + 신호 주황 하나. 숫자·시각은 IBM Plex Mono, 본문은 IBM Plex Sans KR. */
 :root {
   --ground: #F6F5F1;

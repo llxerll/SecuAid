@@ -62,9 +62,9 @@ class TestWebApp(unittest.TestCase):
     def test_index_page(self):
         status, body = http("/")
         self.assertEqual(status, 200)
-        # 리브랜딩: 실드메이트 72 / ShieldMate 72
-        self.assertIn("실드메이트 72", body)
-        self.assertIn("ShieldMate 72", body)
+        # 리브랜딩: 시큐에이드 / SecuAid
+        self.assertIn("시큐에이드", body)
+        self.assertIn("SecuAid", body)
         self.assertIn('href="/static/logo.png"', body)          # 파비콘
         self.assertIn('src="/static/logo.png"', body)           # 좌상단 로고
         self.assertIn("중소·소호 기업 보안사고 초동대응 파트너", body)
@@ -76,6 +76,10 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(body.count('<button class="m-tab'), 4)         # 모바일 하단 4탭
         self.assertIn('data-tab="side"', body)
         self.assertIn('id="sidePane"', body)
+        # Liner 차트는 격리된 창에서 — 고유 출처(allow-same-origin)를 주지 않는다
+        self.assertIn('sandbox="allow-scripts"', body)
+        self.assertNotIn("allow-same-origin", body)
+        self.assertIn('href="/static/logo.svg"', body)
 
     def test_static_assets(self):
         for path in ("/static/app.js", "/static/style.css"):

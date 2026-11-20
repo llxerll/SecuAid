@@ -26,8 +26,8 @@ DATA = Path(__file__).resolve().parent.parent / "data"
 UNKNOWN = "미확인"
 
 # ---------------------------------------------------------------- 브랜드
-BRAND_KO = "실드메이트 72"
-BRAND_EN = "ShieldMate 72"
+BRAND_KO = "시큐에이드"
+BRAND_EN = "SecuAid"
 BRAND_SUBTITLE = "중소·소호 기업 보안사고 초동대응 파트너"
 DOCX_NOTICE = f"{BRAND_EN} 초동대응 초안 — 발송·제출 전 〔미확인〕 항목 확인"
 FONT_LATIN = "Malgun Gothic"       # Windows PC Word/한컴에서 한글·기호가 깨지지 않게

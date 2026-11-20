@@ -4,9 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#16181D" />
+  <meta property="og:image" content="/static/logo.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="description" content="실드메이트 72 — 중소·소호 기업 보안사고 초동대응 파트너. 로그·.eml 판별, 24h·72h 법정 기한, 지금 할 일 체크리스트, 신고서·통지문 DOCX 초안." />
-  <title>실드메이트 72 (ShieldMate 72) — 중소·소호 기업 보안사고 초동대응 파트너</title>
+  <meta name="description" content="시큐에이드 — 중소·소호 기업 보안사고 초동대응 파트너. 로그·.eml 판별, 24h·72h 법정 기한, 지금 할 일 체크리스트, 신고서·통지문 DOCX 초안." />
+  <title>시큐에이드 (SecuAid) — 중소·소호 기업 보안사고 초동대응 파트너</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="icon" type="image/png" href="/static/logo.png" />
   <link rel="apple-touch-icon" href="/static/logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,10 +21,10 @@
 
   <header class="topbar">
     <div class="topbar-in">
-      <a class="brand" href="/" aria-label="실드메이트 72 처음 화면">
+      <a class="brand" href="/" aria-label="시큐에이드 처음 화면">
         <img class="brand-logo" src="/static/logo.png" width="34" height="34" alt="" />
         <span class="brand-text">
-          <span class="brand-name">실드메이트 72 <span class="brand-en">ShieldMate 72</span></span>
+          <span class="brand-name">시큐에이드 <span class="brand-en">SecuAid</span></span>
           <span class="brand-sub">중소·소호 기업 보안사고 초동대응 파트너</span>
         </span>
       </a>
@@ -230,7 +232,7 @@
   </nav>
 
   <footer class="foot">
-    <span>실드메이트 72 · ShieldMate 72 · Liner .EXE-THON 2026</span>
+    <span>시큐에이드 · SecuAid · Liner .EXE-THON 2026</span>
     <span>초안 작성 도구입니다 — 신고·발송의 최종 판단과 제출은 담당자가 합니다. 법률 자문이 아닙니다.</span>
   </footer>
 
@@ -254,11 +256,13 @@
       <div class="modal-head">
         <h3 id="vizTitle">사건 보드 차트</h3>
         <div class="modal-tools">
+          <span id="vizWarn" class="hint hidden"></span>
+          <button id="vizUnsafe" class="btn small hidden" type="button" title="차트 HTML이 이 화면의 데이터에 접근할 수 있게 됩니다">격리 해제하고 보기</button>
           <span id="vizTheme" class="pill light"></span>
           <button id="vizClose" class="btn small" type="button">닫기</button>
         </div>
       </div>
-      <iframe id="vizFrame" class="viz-frame" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer" title="사건 보드 차트"></iframe>
+      <iframe id="vizFrame" class="viz-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="사건 보드 차트"></iframe>
     </div>
   </div>
 

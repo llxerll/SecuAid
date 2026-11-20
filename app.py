@@ -1,4 +1,4 @@
-"""실드메이트 72 (ShieldMate 72) 웹 앱 — 보안사고 초동대응 사건 보드 + 대화형 에이전트.
+"""시큐에이드 (SecuAid) 웹 앱 — 보안사고 초동대응 사건 보드 + 대화형 에이전트.
 
 실행: python app.py  (기본 http://127.0.0.1:8000, PORT 환경변수로 변경)
 Vercel: api/index.py 가 이 모듈의 `app` 을 노출한다(서버리스).
@@ -36,8 +36,8 @@ DATA_DIR = ROOT / "data"
 LOCK = threading.Lock()
 MAX_STATE_CHARS = 4_000_000          # 토큰 폭주 방지(약 4MB)
 
-BRAND_KO = "실드메이트 72"
-BRAND_EN = "ShieldMate 72"
+BRAND_KO = "시큐에이드"
+BRAND_EN = "SecuAid"
 
 
 # --------------------------------------------------------------------------- 세션·상태
@@ -314,7 +314,7 @@ def _attachment(korean_name: str, fallback: str) -> dict:
 
 def _doc_filename(doc_id: str, doc: dict, ext: str) -> str:
     title = _safe_name(doc.get("title") or doc_id)
-    return f"실드메이트72_{title}_{doc_id}.{ext}"
+    return f"시큐에이드_{title}_{doc_id}.{ext}"
 
 
 @app.get("/api/<sid>/doc/<doc_id>")
@@ -326,7 +326,7 @@ def get_doc(sid: str, doc_id: str):
     if not doc:
         return "문서가 없습니다. 먼저 문서를 생성해 주세요.", 404
     return Response(doc["body"], mimetype="text/markdown; charset=utf-8",
-                    headers=_attachment(_doc_filename(doc_id, doc, "md"), f"ShieldMate72_{doc_id}.md"))
+                    headers=_attachment(_doc_filename(doc_id, doc, "md"), f"SecuAid_{doc_id}.md"))
 
 
 @app.post("/api/<sid>/download/zip")
@@ -357,7 +357,7 @@ def get_docx(sid: str, doc_id: str):
     if data is None:
         return "python-docx가 설치되어 있지 않습니다. Markdown으로 받아 주세요.", 501
     return Response(data, mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    headers=_attachment(_doc_filename(doc_id, doc, "docx"), f"ShieldMate72_{doc_id}.docx"))
+                    headers=_attachment(_doc_filename(doc_id, doc, "docx"), f"SecuAid_{doc_id}.docx"))
 
 
 @app.get("/api/<sid>/docs.zip")
@@ -382,9 +382,9 @@ def get_docs_zip(sid: str):
             data = to_docx(Document(doc["id"], doc["title"], doc["kind"], doc["body"]))
             if data:
                 zf.writestr(f"{base}.docx", data)
-    name = f"실드메이트72_사건문서_{agent.case.id}.zip"
+    name = f"시큐에이드_사건문서_{agent.case.id}.zip"
     return Response(buf.getvalue(), mimetype="application/zip",
-                    headers=_attachment(name, f"ShieldMate72_documents_{agent.case.id}.zip"))
+                    headers=_attachment(name, f"SecuAid_documents_{agent.case.id}.zip"))
 
 
 @app.get("/api/<sid>/report")
