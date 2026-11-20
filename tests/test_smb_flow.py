@@ -88,6 +88,20 @@ class TestPlainLanguageFacts(unittest.TestCase):
         self.assertEqual(b["category"]["id"], "CAT02_MAIL_ACCOUNT_ATO")
         self.assertIn("m365", b["evidence"]["platforms"][0]["id"])
 
+    def test_more_plain_language_types(self):
+        cases = {
+            "홈페이지 회원 정보가 털린 것 같아요. 관리자 페이지에 모르는 계정이 생겼어요": ("CAT07_WEB_DB_LEAK", "web_hosting"),
+            "쇼핑몰 접속이 안 돼요. 트래픽이 폭주한다고 호스팅 업체에서 연락 왔어요": ("CAT09_DDOS_OUTAGE", "web_hosting"),
+            "개발자가 AWS 키를 깃허브에 올렸대요. 요금이 갑자기 많이 나왔어요": ("CAT06_CLOUD_KEY_LEAK", "cloud"),
+            "퇴사한 직원이 고객 명단을 USB로 가져간 것 같아요": ("CAT08_INSIDER_LEAK", None),
+        }
+        for text, (cat, platform) in cases.items():
+            b = agent().handle(text)
+            self.assertEqual((b.get("category") or {}).get("id"), cat, text)
+            if platform:
+                self.assertEqual(b["evidence"]["platforms"][0]["id"], platform, text)
+            self.assertFalse(any("돈이 나갔" in q for q in b["missing"]), text)   # 돈 얘기가 없으면 송금을 묻지 않는다
+
     def test_no_category_still_has_actions(self):
         b = agent().handle("뭔가 이상한 일이 생긴 것 같아요")
         self.assertTrue(b["actions"])

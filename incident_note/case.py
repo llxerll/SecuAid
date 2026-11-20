@@ -108,7 +108,7 @@ VALUE_LABEL = {
 
 PLATFORM_LABEL = {
     "m365": "Microsoft 365(아웃룩)", "google": "Google Workspace(지메일)", "kr_mail": "국내 호스팅·그룹웨어 메일",
-    "windows": "Windows PC", "nas": "NAS·파일 서버", "web_hosting": "쇼핑몰·웹 호스팅",
+    "windows": "Windows PC", "nas": "NAS·파일 서버", "web_hosting": "쇼핑몰·웹 호스팅", "cloud": "클라우드·GitHub",
 }
 
 
