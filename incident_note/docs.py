@@ -97,7 +97,10 @@ def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[st
     amount = case.value("transfer_amount") or UNKNOWN
     gi = case.value("transfer_counterparty") or UNKNOWN
     kinds = {"ato": "계정 침해", "spoof": "도메인 사칭", "lookalike": "유사 도메인 사칭",
-             "root": "서버 관리자 권한 탈취", "unknown": "침해 의심"}.get(cls.type, "침해 의심")
+             "root": "서버 관리자 권한 탈취", "ransom": "랜섬웨어 감염",
+             "cloud": "클라우드·API 키 유출", "webdb": "웹·DB 유출", "insider": "내부자 유출",
+             "ddos": "DDoS·서비스 장애", "supply": "공급망 악성코드",
+             "unknown": "침해 의심"}.get(cls.type, "침해 의심")
     return {
         "[회사/팀명]": org,
         "[회사명]": org,
@@ -151,6 +154,9 @@ def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[st
         "[긴급]": "[긴급]",
         "[중요]": "[중요]",
         "[의심/확인]": "확인" if cls.level == "확인" else "의심",
+        "[확장자]": case.value("encrypted_ext") or UNKNOWN,
+        "[랜섬노트 파일명]": case.value("ransom_note") or UNKNOWN,
+        "[암호화 호스트]": f"{case.value('encrypted_hosts')}대" if isinstance(case.value("encrypted_hosts"), int) else UNKNOWN,
         "[송금/계좌 변경/첨부파일/로그인 요청]": "계좌 변경" if "계좌" in " ".join(subjects) else "문서 공유·로그인 요청",
         "[회사/팀명]": org,
         "[ ]": UNKNOWN,
@@ -190,6 +196,15 @@ def _known_facts_line(det: DetectionResult, case: Case) -> str:
 
 
 def _impact_line(case: Case, det: DetectionResult) -> str:
+    if case.value("incident_type") == "ransom":
+        hosts = case.value("encrypted_hosts")
+        backup = {"offline_safe": "오프라인 사본 확보", "at_risk": "백업이 같은 망에 노출",
+                  "unknown": "미확인"}.get(case.value("backup_status"), "미확인")
+        paid = {True: "지불함", False: "지불하지 않음", None: "미확인"}.get(case.value("ransom_paid"), "미확인")
+        pi = {"none": "없음", "suspected": "유출 의심", "confirmed": "유출 확인"}.get(
+            case.value("personal_data_leak"), "미확인")
+        return (f"암호화 호스트 {f'{hosts}대' if isinstance(hosts, int) else '미확인'} / "
+                f"백업 {backup} / 몸값 {paid} / 개인정보 {pi}")
     transfer = {"none": "없음", "pending": "진행·예정", "done": "완료"}.get(case.value("transfer_status"), "미확인")
     pi = {"none": "없음", "suspected": "유출 의심", "confirmed": "유출 확인"}.get(case.value("personal_data_leak"), "미확인")
     sends = sum(1 for f in det.findings if f.rule_id in ("LR_SUSPICIOUS_SEND", "LR_ACCOUNT_CHANGE_MAIL"))
@@ -243,6 +258,9 @@ def build_documents(case: Case, det: DetectionResult, cls: Classification, sev: 
     wanted = ["T1_customer", "T2_deal_check", "T3_staff", "T4_bank", "T5_insurer", "T6_exec5"]
     if cls.type in ("lookalike", "spoof"):
         wanted = ["T1_customer", "T3_staff", "T6_exec5"]
+    if cls.type == "ransom":
+        # 랜섬웨어는 메일 통지문(T1·T2·T4) 대신 직원 긴급 공지와 경영진 결정 문서가 우선이다.
+        wanted = ["T7_staff_ransom", "T6_exec5"]
     if case.value("transfer_status") not in ("done", "pending"):
         wanted = [w for w in wanted if w != "T4_bank"]
     if case.value("insurance") is not True:
@@ -275,11 +293,14 @@ def build_documents(case: Case, det: DetectionResult, cls: Classification, sev: 
         docs["tpl_pi_notice"] = _pi_notice(case, det, cls, evidence, unknowns)
     docs["tpl_exec_report"] = _exec_report(case, det, cls, sev, evidence, unknowns)
     docs["tpl_timeline"] = _timeline(case, det)
+    if cls.type == "ransom":
+        docs["tpl_ransom_report"] = _ransom_report(case, det, cls, evidence, unknowns)
     return docs
 
 
 def _recipients_for(key: str, case: Case) -> str:
     return {
+        "T7_staff_ransom": "전 직원(전화·메신저 등 업무 메일 밖 채널)",
         "T1_customer": "메일을 받은 거래처·고객, 내부 영업",
         "T2_deal_check": "해당 거래처 담당자(원장 번호로 전화 확인 후 발송)",
         "T3_staff": "전 직원(침해되지 않은 채널)",
@@ -373,6 +394,54 @@ def _exec_report(case: Case, det: DetectionResult, cls: Classification, sev: Sev
     )
     return Document("tpl_exec_report", "경영진 보고서(1페이지)", "internal", body, evidence, unknowns,
                     ["확인/추정/미확인 구분", "결정 필요 사항 명시", "다음 보고 시각 포함"], "대표·경영진")
+
+
+def _ransom_report(case: Case, det: DetectionResult, cls: Classification,
+                   evidence: list[str], unknowns: list[str]) -> Document:
+    """랜섬웨어 사고 대응 경과 보고 — 몸값 지불 금지 원칙과 복구 게이트를 문장으로 고정한다."""
+    ddl = {d.rule_id: d for d in deadline_mod.compute(case)}
+    intrusion = ddl.get("R_INTRUSION_REPORT")
+    pi = ddl.get("R_PI_LEAK_REPORT")
+    hosts = case.value("encrypted_hosts")
+    backup = {"offline_safe": "오프라인 사본 확보(복구 가능)", "at_risk": "백업이 같은 망에 노출됨",
+              "unknown": "백업 상태 미확인"}.get(case.value("backup_status"), "백업 상태 미확인")
+    body = _header("랜섬웨어 사고 대응 경과 보고", case, "경영진·전문 대응 조직 전달용")
+    body += (
+        f"1. 상황 요약\n"
+        f"  - 판별: {cls.label} ({cls.level})\n"
+        f"  - 암호화 확인 호스트: {f'{hosts}대' if isinstance(hosts, int) else UNKNOWN}\n"
+        f"  - 변조 확장자: {case.value('encrypted_ext') or UNKNOWN}\n"
+        f"  - 랜섬노트: {case.value('ransom_note') or UNKNOWN}\n"
+        f"  - 백업 상태: {backup}\n\n"
+        f"2. 확인된 사실(로그 근거)\n"
+        + "\n".join(f"  - {kst_label(f.ts)} {f.rule_id} {f.summary}" for f in det.ordered()
+                    if f.rule_id.startswith("RW_")) + "\n\n"
+        "3. 몸값 지불 금지 원칙\n"
+        "  - 지불해도 복호화를 보장하지 않습니다(복호화 키 미제공·부분 복호화 사례 다수).\n"
+        "  - 지불은 공격자에게 자금을 대고, 같은 조직이 재표적이 됩니다(지불 이력이 유통됨).\n"
+        "  - 지불 협상 중에도 암호화·유출 데이터 공개 협박은 계속됩니다.\n"
+        "  - 대신: 백업 오프라인 사본 확인, 복구 도구(No More Ransom·KISA 118) 확인, 신고·통지 기한 준수.\n"
+        f"  - 몸값 요구액: {case.value('ransom_amount') or UNKNOWN} / 지불 여부: "
+        f"{'지불함' if case.value('ransom_paid') is True else '지불하지 않음' if case.value('ransom_paid') is False else UNKNOWN}\n\n"
+        "4. 복구 계획(백업 기반)\n"
+        "  - 복구 원본: 오프라인 백업 사본(마지막 정상 시점 확인 후 읽기 전용으로 검사)\n"
+        "  - 복구 순서: 서비스 복구 → 데이터 복구 → 검증(재감염 여부)\n"
+        "  - 복구 전 확인: 백업 무결성 검사, 감염 경로 차단(계정·VPN·원격접속·공급망), 격리 해제 조건\n\n"
+        "5. 법정 신고·통지\n"
+        f"  - 침해사고 최초신고(정보통신망법 §48조의3, 24시간): [{intrusion.status if intrusion else UNKNOWN}] "
+        f"{kst_label(intrusion.due) if intrusion and intrusion.due else UNKNOWN}\n"
+        f"  - 개인정보 유출 신고·통지(개인정보보호법 §34, 72시간): [{pi.status if pi else UNKNOWN}] "
+        f"{kst_label(pi.due) if pi and pi.due else UNKNOWN}\n"
+        "  - 신고 창구: KISA 보호나라·118, 개인정보포털. 제출은 담당자가 한다(이 문서는 초안).\n\n"
+        "6. 현재 조치와 다음 단계\n"
+        "  - 완료: 감염 호스트 분리, 백업 분리, 로그·랜섬노트 보존\n"
+        "  - 진행: 암호화 범위·감염 경로 확인, KISA 118 상담, 복구 검증\n"
+        "  - 결정 필요: 복구 우선순위, 외부 사고대응 선임, 서비스 중단 범위와 고객 안내\n"
+    )
+    body += "\n■ 확인\n" + "\n".join(evidence) + "\n\n■ 미확인\n" + "\n".join(f"- {u}" for u in unknowns)
+    return Document("tpl_ransom_report", "랜섬웨어 사고 대응 경과 보고", "report", body, evidence, unknowns,
+                    ["몸값 지불 금지 원칙 명시", "복구는 검증된 백업으로만", "신고 기한·담당 표기",
+                     "확인/추정/미확인 구분"], "경영진·KISA·외부 대응 조직")
 
 
 def _timeline(case: Case, det: DetectionResult) -> Document:

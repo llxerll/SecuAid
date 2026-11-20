@@ -1,0 +1,8 @@
+timestamp_kst,host,event_type,user,path,process,detail,dst_ip
+2026-11-20 07:09:12,FS01,service_stop,SYSTEM,,sc.exe,"stop ""Veeam Backup Service""",
+2026-11-20 07:10:02,FS01,shadow_copy_delete,SYSTEM,,vssadmin.exe,delete shadows /all /quiet,
+2026-11-20 07:12:44,FS01,file_encrypted,SYSTEM,D:\shares\영업\2026결산.xlsx.locked,locker.exe,files=3184 ext=.locked,
+2026-11-20 07:13:02,FS02,file_encrypted,SYSTEM,E:\공유\거래처계약.pdf.locked,locker.exe,files=1207 ext=.locked,
+2026-11-20 07:13:10,FS01,ransom_note_written,SYSTEM,D:\_README_RESTORE_9f2c.txt,locker.exe,RESTORE INSTRUCTIONS - 72H,
+2026-11-20 07:14:10,WS-ACC-03,file_encrypted,hjkim,C:\Users\hjkim\문서\세금계산서.xlsx.locked,locker.exe,files=486 ext=.locked,
+2026-11-20 07:15:40,FS02,smb_lateral,SYSTEM,\\10.20.0.15\backup,cipher.exe,remote share enumeration,10.20.0.15

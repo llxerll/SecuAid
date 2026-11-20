@@ -1,7 +1,7 @@
 """Liner API 라이브 테스트 — 키가 있을 때만 실행한다.
 
 실행: LINER_LIVE=1 python -m unittest tests.test_live_liner -v
-비용: chat 1회 + web search 1회 + search agent 1회(약 30초).
+비용: chat 1회 + web search 1회 + search agent 1회(약 30초) + quick answer 1회 + visualization 1회(20~40초).
 """
 import os
 import unittest
@@ -41,6 +41,35 @@ class TestLiveLiner(unittest.TestCase):
         res = self.client.search_agent("정보통신망법 제48조의3 침해사고 신고 기한은 몇 시간인가요?")
         self.assertIn("24", res["answer"])
         self.assertGreater(len(res["references"]), 0)
+
+    def test_quick_answer(self):
+        """Quick Answer Agent API — 짧은 답변 + 출처 3개(stream=false)."""
+        res = self.client.quick_answer("정보통신망법 제48조의3 침해사고 신고 기한은 몇 시간인가요? 한 문장으로.")
+        self.assertTrue(res["answer"])
+        self.assertIn("24", res["answer"])
+        self.assertGreater(len(res["references"]), 0)
+        self.assertLessEqual(len(res["references"]), 3)
+        self.assertTrue(all(r["url"] for r in res["references"]))
+
+    def test_visualization_returns_html(self):
+        """Visualization API — iframe srcdoc 로 렌더 가능한 완전한 HTML 문서."""
+        res = self.client.visualize("랜섬웨어 사고 대응 0~72시간 타임라인")
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["html"].lstrip().lower().startswith("<!doctype html"))
+        self.assertIn("<html", res["html"][:200].lower())
+        self.assertTrue(res["theme"])
+
+    def test_agent_guide_and_viz_live(self):
+        """에이전트 경로에서 Quick Answer 와 Visualization 가 실제로 붙는지."""
+        from incident_note.agent import Agent
+
+        a = Agent(client=self.client)
+        board = a.apply_category("CAT04_RANSOMWARE")
+        self.assertEqual(board["guide"]["status"], "live")
+        self.assertTrue(board["guide"]["references"])
+        viz = a.visualize()
+        self.assertTrue(viz["ok"], viz.get("reason"))
+        self.assertIn("<html", viz["html"][:400].lower())
 
 
 if __name__ == "__main__":

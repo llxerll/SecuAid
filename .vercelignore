@@ -1,0 +1,11 @@
+# Vercel 업로드에서 제외 — 비밀값·산출물·테스트
+.env
+.env.*
+!.env.example
+out/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+docs/*.pdf
+playbook_source/

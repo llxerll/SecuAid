@@ -5,6 +5,8 @@ Liner 키가 없으면 자동으로 규칙 기반 모드로 실행된다.
 
 예)
   python run_demo.py                          # S1 메인 데모
+  python run_demo.py --scenario s4_ransomware     # 랜섬웨어(v0.5)
+  python run_demo.py --category CAT04_RANSOMWARE  # 10대 유형만 골라 공통 흐름(v0.5)
   python run_demo.py --scenario s2_lookalike_domain
   python run_demo.py --out out/s1            # 리포트 + 문서 초안 저장
   python run_demo.py --json                  # 보드 전체 JSON 출력
@@ -31,6 +33,7 @@ def render_markdown(board: dict) -> str:
         f"- 실행 모드: {case['mode']}",
         f"- 심각도: **{sev['level']} {sev['name']}** (근거 수준 {sev['evidence_level']})",
         f"- 판별: **{cls['label']}** ({cls['level']})",
+        f"- 10대 유형: {((board.get('category') or {}).get('name') or '미선택')}",
         f"- 탐지: {len(board['findings'])}건 / 의심 IP {len(board['suspect_ips'])}개 / 로그 {', '.join(board['log_kinds']) or '없음'}",
         "",
         "## 판별 근거",
@@ -41,7 +44,8 @@ def render_markdown(board: dict) -> str:
               for i, a in enumerate(board["actions"], 1)]
     lines += ["", "## 신고·통지 기한"]
     for d in board["deadlines"]["items"]:
-        lines.append(f"- **[{d['status']}] {d['title']}** → {d['to']} / 마감 {d['due']} ({d['remaining']})")
+        lines.append(f"- **[{d['status']}] {d['title']}** → {d['to']} / 마감 {d['due'] or '미확인'}"
+                     f"{(' (' + d['remaining'] + ')') if d.get('remaining') else ''}")
         lines.append(f"  - 판단 근거: {d['why']} · 근거 조항: {d['legal_ref']}")
     ops = [o for o in board["deadlines"]["operational"] if o["triggered"]]
     if ops:
@@ -74,6 +78,8 @@ def render_markdown(board: dict) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description="인시던트 노트 CLI 데모")
     ap.add_argument("--scenario", default="s1_bec_account_change")
+    ap.add_argument("--category", default=None,
+                    help="10대 사고 유형 id/번호 (예: CAT04_RANSOMWARE 또는 4) — 시나리오 없이 공통 흐름 실행")
     ap.add_argument("--aware-at", default=None, help="인지 시각 재정의 (예: '2026-11-19 09:05')")
     ap.add_argument("--out", default=None, help="결과 저장 디렉터리")
     ap.add_argument("--json", action="store_true", help="보드 JSON을 표준출력으로")
@@ -84,7 +90,10 @@ def main() -> None:
     if args.offline:
         client.offline = True
     agent = Agent(client=client)
-    board = agent.run_scenario(args.scenario, aware_at=args.aware_at)
+    if args.category:
+        board = agent.apply_category(args.category)
+    else:
+        board = agent.run_scenario(args.scenario, aware_at=args.aware_at)
 
     if args.json:
         print(json.dumps(board, ensure_ascii=False, indent=2, default=str))

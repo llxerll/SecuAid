@@ -27,6 +27,8 @@ AUDIT = "audit"
 TRACE = "trace"
 FIREWALL = "firewall"
 SYSLOG = "syslog"
+EDR = "edr"
+BACKUP = "backup"
 EML = "eml"
 UNKNOWN = "unknown"
 
@@ -36,6 +38,8 @@ KIND_LABEL = {
     TRACE: "메시지 추적",
     FIREWALL: "방화벽 알림",
     SYSLOG: "Linux secure 로그",
+    EDR: "EDR·파일 서버 이벤트",
+    BACKUP: "백업 작업 로그",
     EML: "메일 원본(EML)",
     UNKNOWN: "알 수 없는 형식",
 }
@@ -79,6 +83,10 @@ def sniff(text: str) -> str:
         return TRACE
     if "dst_port" in low and "src_ip" in low:
         return FIREWALL
+    if "backup_host" in low and ("job" in low or "status" in low):
+        return BACKUP
+    if "event_type" in low and "host" in low and ("path" in low or "user" in low):
+        return EDR
     if "sshd[" in low or "pam_unix" in low or "fw-log" in low:
         return SYSLOG
     if ("received:" in low or low.startswith("from:")) and ("message-id" in low or "subject:" in low):
@@ -132,6 +140,22 @@ def parse(text: str, *, kind: str | None = None, default_year: int | None = None
         for row in _rows(text):
             recs.append(Record(TRACE, parse_ts(_first(row, "Received(UTC)", "Received", "Date"), default_year=default_year), row))
         return ParsedLog(TRACE, recs)
+
+    if kind == EDR:
+        recs = []
+        for row in _rows(text):
+            ts_raw = _first(row, "timestamp_kst", "timestamp", "time")
+            assume_utc = not any(k.lower() in ("timestamp_kst", "time_kst") for k in row)
+            recs.append(Record(EDR, parse_ts(ts_raw, assume_utc=assume_utc, default_year=default_year), row))
+        return ParsedLog(EDR, recs)
+
+    if kind == BACKUP:
+        recs = []
+        for row in _rows(text):
+            ts_raw = _first(row, "timestamp_kst", "timestamp", "time")
+            assume_utc = not any(k.lower() in ("timestamp_kst", "time_kst") for k in row)
+            recs.append(Record(BACKUP, parse_ts(ts_raw, assume_utc=assume_utc, default_year=default_year), row))
+        return ParsedLog(BACKUP, recs)
 
     if kind == FIREWALL:
         # 파일에 따라 KST/UTC 표기가 다르다. 컬럼 이름으로 판단한다.
@@ -193,6 +217,8 @@ HEADER_SIGNATURES = (
     (AUDIT, ("CreationDate", "Operation", "ClientIP")),
     (TRACE, ("Received(UTC)", "SenderAddress")),
     (FIREWALL, ("dst_port", "src_ip")),
+    (BACKUP, ("backup_host", "job")),
+    (EDR, ("event_type", "host")),
 )
 
 

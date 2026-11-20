@@ -36,6 +36,20 @@ DEFAULT_FACTS: dict[str, Any] = {
     "pi_data_types": None,
     "aware_at": None,
     "report_channel": None,
+    # v0.5 — 10대 유형 선택 · 랜섬웨어 전용 사실
+    "category": None,                 # CAT01_... ~ CAT10_...
+    "category_label": None,
+    "category_severity": None,        # 유형 기본 심각도(P1~P4)
+    "ransomware_confirmed": None,     # 파일 암호화·랜섬노트로 확인
+    "ransom_note": None,              # 랜섬노트 파일 경로
+    "encrypted_hosts": None,          # 암호화 확인 호스트 수
+    "encrypted_files": None,          # 암호화 확인 파일 수
+    "encrypted_ext": None,            # 변조 확장자(.locked 등)
+    "backup_status": None,            # offline_safe | at_risk | unknown
+    "backup_isolated": None,          # 백업 분리 완료
+    "shadow_copies_deleted": None,    # 볼륨 섀도 복사본 삭제
+    "ransom_amount": None,            # 요구 금액(문자열)
+    "ransom_paid": None,              # 몸값 지불 여부
 }
 
 FACT_LABEL = {
@@ -59,16 +73,34 @@ FACT_LABEL = {
     "pi_data_types": "유출 가능 개인정보 항목",
     "aware_at": "인지 시각",
     "report_channel": "신고 창구",
+    "category": "10대 사고 유형",
+    "category_label": "10대 사고 유형명",
+    "category_severity": "유형 기본 심각도",
+    "ransomware_confirmed": "랜섬웨어 감염 확인",
+    "ransom_note": "랜섬노트",
+    "encrypted_hosts": "암호화 확인 호스트",
+    "encrypted_files": "암호화 확인 파일",
+    "encrypted_ext": "변조 확장자",
+    "backup_status": "백업 상태",
+    "backup_isolated": "백업 분리",
+    "shadow_copies_deleted": "섀도 복사본 삭제",
+    "ransom_amount": "몸값 요구액",
+    "ransom_paid": "몸값 지불",
 }
 
 
 # 내부 코드값 → 화면·문서에 쓰는 한국어 표기
 VALUE_LABEL = {
     "incident_type": {"ato": "메일 계정 탈취(ATO)", "spoof": "발신자 위조(스푸핑)",
-                      "lookalike": "유사 도메인 사칭", "root": "서버 관리자 권한 탈취", "unknown": "판별 전"},
+                      "lookalike": "유사 도메인 사칭", "root": "서버 관리자 권한 탈취",
+                      "ransom": "랜섬웨어 감염", "cloud": "클라우드·API 키 유출",
+                      "webdb": "웹 애플리케이션·DB 유출", "insider": "내부자 정보 유출",
+                      "ddos": "DDoS·서비스 장애", "supply": "공급망·악성코드 감염", "unknown": "판별 전"},
     "transfer_status": {"none": "송금 없음", "pending": "송금 진행·예정", "done": "송금 완료", "unknown": "미확인"},
     "personal_data_leak": {"none": "유출 흔적 없음", "suspected": "유출 의심", "confirmed": "유출 확인",
                            "unknown": "미확인"},
+    "backup_status": {"offline_safe": "오프라인 사본 확보", "at_risk": "백업이 같은 망에 노출",
+                      "unknown": "미확인"},
 }
 
 
@@ -84,6 +116,10 @@ def display_value(key: str, val: Any) -> Any:
         return ", ".join(str(v) for v in val)
     if key == "affected_count" and isinstance(val, int):
         return f"{val:,}명"
+    if key == "encrypted_hosts" and isinstance(val, int):
+        return f"{val}대"
+    if key == "encrypted_files" and isinstance(val, int):
+        return f"{val:,}개"
     if key == "org_size" and isinstance(val, int):
         return f"{val}명"
     if key == "transfer_amount" and isinstance(val, int):
@@ -112,6 +148,8 @@ class Case:
     log_kinds: list[str] = field(default_factory=list)
     sources: list[dict] = field(default_factory=list)   # Liner 인용 출처
     law_checks: list[dict] = field(default_factory=list)
+    guides: dict[str, dict] = field(default_factory=dict)   # 10대 유형별 Quick Answer 가이드
+    viz: dict | None = None                                  # Visualization API 결과
     docs: dict[str, dict] = field(default_factory=dict)
     history: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -183,8 +221,14 @@ class Case:
             "spoof": "도메인 스푸핑",
             "lookalike": "유사 도메인 사칭",
             "root": "메일 서버 관리자 권한 탈취",
+            "ransom": "랜섬웨어 감염",
+            "cloud": "클라우드·API 키 유출",
+            "webdb": "웹 애플리케이션·DB 유출",
+            "insider": "내부자 정보 유출",
+            "ddos": "DDoS·서비스 장애",
+            "supply": "공급망·악성코드 감염",
             "unknown": "메일 침해 의심",
-        }.get(self.value("incident_type", "unknown"), "메일 침해 의심")
+        }.get(self.value("incident_type", "unknown"), "침해 사고 의심")
         return f"{org} {kind}"
 
     def facts_view(self) -> list[dict]:

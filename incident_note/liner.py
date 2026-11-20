@@ -1,9 +1,13 @@
-"""Liner Platform API 클라이언트 — 실제 서비스의 3개 API만 쓴다.
+"""Liner Platform API 클라이언트 — 실제 서비스의 5개 API만 쓴다.
 
-검증된 엔드포인트(2026-11-15, platform.liner.com):
+검증된 엔드포인트(2026-11-15 / 2026-11-20, platform.liner.com):
 - Router API(대화·문장 작성): POST /api/v1/chat/completions, model=liner-mark-1.3 (OpenAI 호환, Bearer)
 - Search API(검색 결과 JSON): POST /api/v1/tools/search/web, 헤더 x-api-key
 - Search Agent API(근거+인용 답변): POST /api/v1/agents/search, 헤더 x-api-key, stream=false
+- Quick Answer Agent API(즉답 가이드): POST /api/v1/agents/quick-answer, 헤더 x-api-key, stream=false
+  → {answer, references[]} · 약 200자 답변 + 출처 3개 · 단발성 초동 가이드용
+- Visualization API(차트 HTML): POST /api/v1/tools/visualization, 헤더 x-api-key, stream=false
+  → chunks[].data.atlasArtifact.html (완전한 HTML 문서, iframe srcdoc 로 렌더)
 
 기획서 v0.9에 적힌 "Liner Legal Search"는 존재하지 않는 API명이다. 법령·KISA 공지 근거는
 Search API와 Search Agent API로 확보한다(Search Agent가 출처 링크 20~50건을 함께 준다).
@@ -12,6 +16,7 @@ Search API와 Search Agent API로 확보한다(Search Agent가 출처 링크 20~
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -84,7 +89,8 @@ class LinerClient:
     def _log_call(self, name: str, ok: bool, ms: int, detail: str = "") -> None:
         self.calls.append({"api": name, "ok": ok, "ms": ms, "detail": detail[:300]})
 
-    def _post(self, path: str, payload: dict, *, auth: str = "bearer", api_name: str = "") -> dict:
+    def _post(self, path: str, payload: dict, *, auth: str = "bearer", api_name: str = "",
+              timeout: int | None = None, retries: int | None = None) -> dict:
         if not self.available:
             raise LinerUnavailable("LINER_API_KEY가 없습니다. .env에 키를 설정하면 Liner API가 켜집니다.")
         url = f"{self.base_url}{path}"
@@ -96,11 +102,12 @@ class LinerClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         last: LinerError | None = None
-        for attempt in range(self.retries + 1):
+        max_retries = self.retries if retries is None else retries
+        for attempt in range(max_retries + 1):
             started = time.time()
             req = urllib.request.Request(url, data=data, headers=headers, method="POST")
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
                     raw = resp.read().decode("utf-8", "replace")
                 self._log_call(api_name or path, True, int((time.time() - started) * 1000))
                 return json.loads(raw) if raw.strip().startswith("{") else {"raw": raw}
@@ -124,13 +131,13 @@ class LinerClient:
                 last = LinerError(f"{exc.code} {code} {msg} {hint}".strip(), status=exc.code, code=code,
                                   retryable=retryable)
                 self._log_call(api_name or path, False, int((time.time() - started) * 1000), f"HTTP {exc.code} {code}")
-                if not retryable or attempt >= self.retries:
+                if not retryable or attempt >= max_retries:
                     raise last
                 time.sleep(1.5 * (attempt + 1))
             except (urllib.error.URLError, TimeoutError) as exc:
                 self._log_call(api_name or path, False, int((time.time() - started) * 1000), str(exc)[:120])
                 last = LinerError(f"네트워크 오류: {exc}", retryable=True)
-                if attempt >= self.retries:
+                if attempt >= max_retries:
                     raise last
                 time.sleep(1.5 * (attempt + 1))
         raise last or LinerError("알 수 없는 오류")
@@ -191,6 +198,59 @@ class LinerClient:
                          "description": (r.get("description") or "")[:280]})
         return {"answer": data.get("answer", ""), "references": refs,
                 "chunks": data.get("chunks") or []}
+
+    # ------------------------------------------------------------------ 4) 즉답 가이드
+    def quick_answer(self, question: str, *, history: list[dict] | None = None,
+                     timeout: int | None = None) -> dict:
+        """Quick Answer Agent — 약 200자 즉답 + 출처 3개. 초동 가이드·법령 한 줄 확인용.
+
+        Search Agent(느리지만 긴 근거)와 달리 단일 패스라 지연이 짧다.
+        stream=false 로 받아 JSON 한 번에 처리한다(모바일·서버리스에서 타임아웃이 짧다).
+        """
+        messages = list(history or []) + [{"role": "user", "content": question}]
+        payload = {"messages": messages, "stream": False,
+                   "request_id": "qa_" + hashlib.sha1(question.encode("utf-8")).hexdigest()[:12]}
+        data = self._post("/agents/quick-answer", payload, auth="x-api-key",
+                          api_name="quick_answer", timeout=timeout or min(self.timeout, 60), retries=1)
+        refs = []
+        for r in data.get("references") or []:
+            refs.append({"title": r.get("title", ""), "url": r.get("url", ""),
+                         "hostname": r.get("hostname", ""), "date": r.get("date") or "",
+                         "description": (r.get("description") or "")[:240]})
+        return {"answer": (data.get("answer") or "").strip(), "references": refs}
+
+    # ------------------------------------------------------------------ 5) 시각화
+    def visualize(self, query: str, *, is_search_context: bool = False, appearance: str = "dark",
+                  max_results: int | None = None, date_range: str | None = None,
+                  timeout: int | None = None) -> dict:
+        """Visualization API — 자연어 질의를 HTML 차트로. html은 iframe srcdoc에 그대로 넣는다.
+
+        평균 20~30초. 실패·오프라인은 상위에서 폴백 카드로 처리한다.
+        """
+        payload: dict[str, Any] = {"query": query, "appearance": appearance, "stream": False}
+        if is_search_context:
+            payload["is_search_context"] = True
+            if max_results:
+                payload["max_results"] = max(1, min(20, max_results))
+            if date_range:
+                payload["date_range"] = date_range
+        data = self._post("/tools/visualization", payload, auth="x-api-key",
+                          api_name="visualization", timeout=timeout or max(self.timeout, 90), retries=1)
+        artifact: dict = {}
+        for chunk in data.get("chunks") or []:
+            if chunk.get("type") == "data-atlas":
+                artifact = (chunk.get("data") or {}).get("atlasArtifact") or {}
+                break
+        if not artifact and isinstance(data.get("atlasArtifact"), dict):
+            artifact = data["atlasArtifact"]
+        refs = []
+        for r in data.get("references") or []:
+            refs.append({"title": r.get("title", ""), "url": r.get("url", ""),
+                         "hostname": r.get("hostname", ""), "date": r.get("date") or ""})
+        html = artifact.get("html") or ""
+        return {"ok": bool(html), "html": html, "theme": artifact.get("theme", ""),
+                "description": artifact.get("description", ""),
+                "resource_id": artifact.get("resourceId", ""), "references": refs}
 
     # ------------------------------------------------------------------ 상태
     def status(self) -> dict:

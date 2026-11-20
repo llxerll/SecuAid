@@ -1,0 +1,4 @@
+timestamp_kst,backup_host,job,status,detail
+2026-11-20 06:00:03,BKP01,nightly_sql,success,DB full backup 41GB
+2026-11-20 07:16:22,BKP01,nightly_file,failed,"destination \\FS01\backup unreachable (share encrypted)"
+2026-11-20 07:16:31,BKP01,catalog,error,"catalog mount failed: offline catalog on same LAN share"

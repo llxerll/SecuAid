@@ -1,12 +1,15 @@
 # 인시던트 노트 (Incident Note)
 
-> 이메일 침해 초동대응 에이전트 — 보안 담당자가 없는 회사의 첫 72시간을 지키는 AI
-> Liner .EXE-THON 2026 제출작 (v0.4)
+> 10대 침해 사고 초동대응 에이전트 — 보안 담당자가 없는 회사의 첫 72시간을 지키는 AI
+> Liner .EXE-THON 2026 제출작 (v0.5)
 
-메일 계정이 뚫린 날, 작은 회사의 IT 담당자는 무엇부터 해야 할지 모릅니다.
+메일 계정이 뚫리거나 파일 서버가 랜섬웨어로 잠긴 날, 작은 회사의 IT 담당자는 무엇부터 해야 할지 모릅니다.
 인시던트 노트는 **로그·메일 원본을 붙여넣으면** ① 침해 유형과 심각도를 판정하고, ② 지금 할 일과 하지 말 것을 순서대로 주며, ③ 법정 신고·통지 기한을 계산하고, ④ 통지문·신고서 초안을 만들어 주는 에이전트입니다.
+로그가 없어도 **10대 사고 유형 중 하나를 고르는 것만으로** 공통 초동조치·기한·유형별 즉답 가이드가 바로 작동합니다.
 
 **계산은 규칙 엔진이, 해석과 문장은 Liner가, 최종 판단과 발송은 사람이 합니다.**
+
+- v0.5: 10대 사고 분류 + 핵심 4종(랜섬웨어 S4 포함) 깊은 대응 + Liner Quick Answer·Visualization 연동 + Vercel 서버리스(Stateless 상태 토큰) + 모바일 반응형.
 
 ---
 
@@ -34,14 +37,19 @@ CLI로 바로 확인하려면:
 python run_demo.py                                  # S1 메인 시나리오
 python run_demo.py --scenario s2_lookalike_domain   # 유사 도메인 사칭
 python run_demo.py --scenario s3_selfhosted_root_out_of_scope
+python run_demo.py --scenario s4_ransomware         # 랜섬웨어(v0.5)
+python run_demo.py --category CAT07_WEB_DB_LEAK     # 로그 없이 10대 유형만 골라 공통 흐름
 python run_demo.py --offline --out out/s1           # 키 없이 + 결과 저장
 ```
 
 화면 사용법:
+- **사고 유형 선택기(상단 10개 칩)** — 고르면 그 유형의 공통 초동조치·하지 말 것·법정 기한과 **유형별 즉답 가이드**(Liner Quick Answer, 키가 없으면 규칙 기반 안내)가 즉시 나옵니다. 핵심 4종에는 `심화` 표시가 있고, 탐지된 로그와 맞는 유형은 주황 테두리로 추천됩니다.
 - **[▶ 단계별 재생]** — 시나리오의 데모 입력(전화 진술 → 메일 원본 → 로그 3종 → 송금 사실 → 개인정보 규모)을 실제 사용자처럼 대화창에 하나씩 보내며, 심각도가 **P3 → P2 → P1** 으로 바뀌는 순간을 상단 배지·대화에 표시합니다. 재생 중 다시 누르면 멈추고 이어서 직접 입력할 수 있습니다.
 - **[한 번에 실행]** — 같은 입력을 서버에서 한 번에 처리하고 결과만 보여 줍니다.
 - 왼쪽 대화에 직접 입력해도 됩니다(로그 CSV·`.eml` 원본 붙여넣기 지원, Ctrl/⌘+Enter 전송).
-- **[문서 초안 생성]** → 통지문·신고서 10종. 문서마다 미리보기·복사·MD·DOCX, 오른쪽 **전체 ZIP** 은 사건 리포트 + 전 문서(MD·DOCX)를 한 번에 내려받습니다.
+- **[문서 초안 생성]** → 통지문·신고서 8~10종(유형에 따라 다름). 문서마다 미리보기·복사·MD·DOCX, 오른쪽 **전체 ZIP** 은 사건 리포트 + 전 문서(MD·DOCX)를 한 번에 내려받습니다.
+- **[차트로 보기]** — Liner Visualization API가 이 사건의 0~72시간 대응을 HTML 차트로 그려 모달 iframe에 띄웁니다. 키가 없거나 실패하면 깨지지 않고 **요약 폴백 카드**(구간별 할 일 수 + 다음 기한)로 대체합니다.
+- 모바일(375px)까지 1열로 떨어지고, 1280px 이하에서는 대화 패널의 `sticky`를 풀어 스크롤을 방해하지 않습니다.
 
 ---
 
@@ -52,22 +60,47 @@ python run_demo.py --offline --out out/s1           # 키 없이 + 결과 저장
 | 대화·판단 해석·문장 작성 | `POST /api/v1/chat/completions` | `liner-mark-1.3`, `Authorization: Bearer` | `incident_note/liner.py: chat()`, `agent.py: _narrate()` | 사용자의 말("거래처에서 계좌 바꿨냐고 전화가 왔어요")을 구조화된 사실로 바꾸고, 사건 브리핑 문장을 씁니다. **확인/추정/미확인을 구분**하고 JSON에 없는 수치·법령은 만들지 않도록 프롬프트로 제한합니다. |
 | 법령·공지 최신성 확인 | `POST /api/v1/agents/search` | `x-api-key`, `stream: false` | `liner.py: search_agent()`, `agent.py: verify_law()` | 신고 기한의 근거(정보통신망법 §48조의3 24시간 / 개인정보보호법 §34조 72시간)를 **출처 링크와 함께** 재확인하고, 코드 규칙과 답변이 다르면 `drift`로 표시합니다. |
 | 공식 창구·참고 자료 | `POST /api/v1/tools/search/web` | `x-api-key` | `liner.py: search_web()` | KISA 보호나라(118)·개인정보포털 등 신고 창구 링크를 결과 카드에 붙입니다. |
+| **유형별 즉답 가이드(v0.5)** | `POST /api/v1/agents/quick-answer` | `x-api-key`, `stream: false` | `liner.py: quick_answer()`, `agent.py: quick_guide()` | 10대 사고 유형마다 "지금 10분 안에 할 일"을 **약 200자 답변 + 출처 3개**로 받아 카드에 답니다. Search Agent(25초)와 달리 2~3초라 유형을 고르는 즉시 보여 줄 수 있습니다. |
+| **사건 보드 차트(v0.5)** | `POST /api/v1/tools/visualization` | `x-api-key`, `stream: false` | `liner.py: visualize()`, `agent.py: visualize()` | 사건의 0~72시간 대응과 신고 기한을 **완전한 HTML 아티팩트**(`chunks[].data.atlasArtifact.html`)로 받아 `iframe srcdoc`에 렌더합니다. 평균 10~30초, 실패 시 요약 카드로 폴백. |
 
-> **기획서 정정:** v0.9 기획서의 `Liner Legal Search` 는 실제로 존재하는 API명이 아닙니다. Liner Platform의 실제 구성은 Router API(`liner-mark-1.3` 등) + Tools API(Search·Visualization) + Agent API(Quick Answer·Search Agent·Deep Research·Visual Answer)이며, 이 프로젝트는 그중 위 3개를 실제로 호출합니다. (2026-11-15 `platform.liner.com` 문서와 라이브 호출로 검증)
+> **기획서 정정:** v0.9 기획서의 `Liner Legal Search` 는 실제로 존재하는 API명이 아닙니다. Liner Platform의 실제 구성은 Router API(`liner-mark-1.3` 등) + Tools API(Search·Visualization) + Agent API(Quick Answer·Search Agent·Deep Research·Visual Answer)이며, 이 프로젝트는 그중 **5개**를 실제로 호출합니다. (2026-11-15·11-20 `platform.liner.com` 공식 문서와 라이브 호출로 검증 — Quick Answer는 `agents/quick-answer`, Visualization은 `tools/visualization`)
 
 **비용·지연:** Search Agent 1회 ≈ 25초, chat 1회 ≈ 2~3초. S1 시나리오 전체(5단계 + 문서) 실측 **약 45초**, 크레딧은 1회 실행당 수십 센트 수준입니다.
 
 ---
 
-## 3. 데모 시나리오 3종 (모두 가상 데이터)
+## 3. 데모 시나리오 4종 (모두 가상 데이터)
 
 | 시나리오 | 무슨 일이 있었나 | 에이전트 정답 행동 | 데이터 |
 |---|---|---|---|
 | **S1** 영업관리 계정 탈취 → 계좌 변경 사칭 (메인) | M365 계정 AiTM 탈취 → 숨김 규칙 `..` 생성 → 거래처 3곳 + 214명 피싱 발송 → 거래처 전화로 인지 → 다음 날 아침 거래처가 1,870만 원 송금 | 판별 **ATO(확인)** → 송금 확인 시 **P1** → 은행 지급정지 최우선 → 신고 11/20 09:05, 통지 11/22 09:05 → 문서 10종 | `data/scenarios/s1_bec_account_change/` |
 | **S2** 유사 도메인 사칭 | `hanbit-logistcs.example`(두 글자 다름)에서 우리 이름으로 계좌 변경 메일. 내부 로그인·발송 흔적 없음 | **유사 도메인(P4)** — 우리 계정 침해 아님, 신고 비해당 → 차단·고객 경고·DMARC 점검이 답 | `data/scenarios/s2_lookalike_domain/` |
 | **S3** 메일 서버 root 탈취 (범위 밖) | SSH 무차별 대입 → root 장악 → 원격제어 에이전트 설치 → 로그 삭제 → 외부 3389 아웃바운드 | **모른다고 말함** — 재부팅·삭제 금지, 초동 조치 + **전문 대응 조직 호출**, 신고 기한만 계산 | `data/scenarios/s3_selfhosted_root_out_of_scope/` |
+| **S4** 랜섬웨어 (v0.5 신규) | 파일 서버 2대 + 회계 PC 1대, 파일 4,877건이 `.locked`로 암호화 · 랜섬노트(0.5 BTC) · 섀도 복사본 삭제 · 백업 서비스 중지 · 백업 작업 실패 | **랜섬웨어(P1·확인)** → 감염 호스트 분리(전원 차단 금지) → **백업 오프라인 사본 보호** → **몸값 지불 금지** → KISA 118·24h/72h 신고 계산 → 문서 8종(직원 긴급 공지·최초신고서·개인정보 신고서·통지문·경영진 보고·타임라인·**랜섬웨어 대응 경과 보고**) | `data/scenarios/s4_ransomware/` |
 
-시나리오별 데모 발화는 각 폴더의 `README.md` 와 `scenario.json` 의 `demo_inputs` 에 있습니다. S2는 "**우리가 신고해야 하나요?**"라는 질문에 "비해당, 대신 할 일은 이것"이라고 답하는 장면을 보여 주기 위한 대조군입니다.
+시나리오별 데모 발화는 각 폴더의 `README.md` 와 `scenario.json` 의 `demo_inputs` 에 있습니다. S2는 "**우리가 신고해야 하나요?**"라는 질문에 "비해당, 대신 할 일은 이것"이라고 답하는 장면을, S4는 "**몸값을 지불하면 복구가 될까요?**"라는 질문에 **지불 금지 + 백업·신고 경로**를 제시하는 가드레일 장면을 보여 줍니다.
+
+---
+
+## 3-1. 10대 침해 사고 유형 (v0.5)
+
+| # | 유형 | 판정 깊이 | 대표 근거 |
+|---|---|---|---|
+| 1 | 이메일 BEC·계좌변경 사칭 | **심화(S1)** | 계좌 변경 발송·숨김 규칙·메시지 추적 |
+| 2 | 메일·업무 계정 탈취(ATO) | **심화(S1)** | 로그인·감사 로그, 세션 탈취(60분 두 국가) |
+| 3 | 유사 도메인·스푸핑 사칭 | **심화(S2)** | EML 헤더·SPF/DKIM/DMARC·발신 도메인 철자 |
+| 4 | 랜섬웨어 감염 | **심화(S4)** | EDR 파일 이벤트(확장자 변조·랜섬노트·섀도 삭제)·백업 로그 |
+| 5 | 서버 root·권한 탈취 | **심화(S3)** | secure 로그·서비스 설치·로그 삭제·3389 아웃바운드 |
+| 6 | 클라우드·API 키 유출 | 공통 흐름 | 유형 카탈로그(초동조치·금지행동·기한 포커스) |
+| 7 | 웹 애플리케이션·DB 유출 | 공통 흐름 | 〃 |
+| 8 | 내부자 정보 유출 | 공통 흐름 | 〃 |
+| 9 | DDoS·서비스 장애 | 공통 흐름 | 〃 |
+| 10 | 공급망·악성코드 감염 | 공통 흐름 | 〃 |
+
+- 카탈로그는 `incident_note/categories.py` 한 곳에 있습니다(유형명·기본 심각도·초동조치 4개·하지 말 것·기한 포커스·Quick Answer 질문·규칙 연관).
+- **핵심 4종**(1~5, BEC와 ATO가 S1을 공유)은 결정적 규칙·시나리오·데모 입력으로 `[▶ 단계별 재생]`과 `[한 번에 실행]`이 모두 동작합니다.
+- 나머지 6종은 유형을 고르거나 "DB가 털린 것 같아요"처럼 한 줄만 입력해도 공통 초동조치·법정 기한(24h/72h)·유형별 즉답 가이드가 즉시 나옵니다.
+- 유형 선택은 `추정` 근거로 기록되고, 로그로 확인되면 `확인`으로 승격됩니다. 대화 한 줄에서도 키워드로 유형을 추정 연결합니다.
 
 ---
 
@@ -75,7 +108,9 @@ python run_demo.py --offline --out out/s1           # 키 없이 + 결과 저장
 
 ```
 incident-note/
-├─ app.py                     # Flask 웹 앱 (사건 보드 + 대화 API + 문서 다운로드)
+├─ app.py                     # Flask 웹 앱 (사건 보드 + 대화·유형·가이드·차트 API + 문서)
+├─ api/index.py               # Vercel Python 진입점(`app` 노출) — 로컬 실행에는 영향 없음
+├─ vercel.json                # Vercel 빌드·라우팅·includeFiles 설정
 ├─ run_demo.py                # CLI 데모/리포트 생성
 ├─ templates/index.html       # 화면 (한 페이지)
 ├─ static/{style.css,app.js}  # 스타일·화면 로직 (의존성 없음)
@@ -85,6 +120,7 @@ incident-note/
 │   ├─ ingest.py              # 로그 인제스트(다중 붙여넣기·형식 자동 판별)
 │   ├─ eml.py                 # EML 헤더 판독(ATO/스푸핑/유사 도메인)
 │   ├─ detect.py              # 결정적 규칙 엔진(14규칙 + 서버 6규칙)
+│   ├─ categories.py          # 10대 사고 유형 카탈로그(초동조치·금지행동·즉답 질문)
 │   ├─ classify.py            # 유형 판정 + 근거·모르는 것
 │   ├─ severity.py            # 심각도 P1~P4 + 격상 조건
 │   ├─ deadline.py            # 신고·통지 기한 + 운영 연락
@@ -97,9 +133,9 @@ incident-note/
 │   ├─ playbook_tree.json     # 플레이북 판단 구조(저작물 원문 아님, 구조화 데이터)
 │   ├─ log_rules.json         # 메일 계정 침해 규칙 14종
 │   ├─ log_rules_selfhosted.json # 자체 서버(root) 규칙 6종
-│   ├─ reporting_rules.json   # 신고·통지 규칙 3종 + 운영 연락 5종
-│   ├─ templates.json         # 통지 템플릿 6종 + 발송 전 통과표
-│   └─ scenarios/             # 가상 시나리오 3종(로그·메일·정답지)
+│   ├─ reporting_rules.json   # 신고·통지 규칙 3종 + 운영 연락 7종(랜섬웨어 포함)
+│   ├─ templates.json         # 통지 템플릿 7종(직원 긴급 공지 포함) + 발송 전 통과표
+│   └─ scenarios/             # 가상 시나리오 4종(로그·메일·정답지, S4=랜섬웨어)
 ├─ tests/                     # 단위 + 시나리오 E2E + HTTP E2E + 라이브 API
 ├─ docs/기획서_요약_1p.md      # 제출용 1~2페이지 기획서 원고
 ├─ docs/기획서_v1.0.html       # 전체 기획서 v1.0 원본(HTML+CSS, 인쇄용)
@@ -138,9 +174,11 @@ python -m unittest tests.e2e_http -v
 LINER_LIVE=1 python -m unittest tests.test_live_liner -v
 ```
 
-검증 항목(요약): 시간대 변환(naive를 서버 로컬로 오인하지 않음), PII 마스킹 왕복, 로그 형식 자동 판별·다중 붙여넣기, 규칙 14+6종 탐지와 오탐 방지(정상 발송·`Set-Mailbox` 오탐), 판별 3분류, 심각도 P2→P1 격상, 기한 계산(11/20·11/22 09:05), 문서에 링크·빈칸 없음, 화면 DOM id 정합, 시나리오 3종 기대값.
+검증 항목(요약): 시간대 변환(naive를 서버 로컬로 오인하지 않음), PII 마스킹 왕복, 로그 형식 자동 판별·다중 붙여넣기, 규칙 14+6종 탐지와 오탐 방지(정상 발송·`Set-Mailbox` 오탐), 판별, 심각도 P2→P1 격상, 기한 계산(11/20·11/22 09:05), 문서에 링크·빈칸 없음, 화면 DOM id 정합, 시나리오 4종 기대값, **랜섬웨어 규칙 6종·몸값 지불 금지·24h/72h**, **10대 유형 카탈로그·유형만으로 공통 흐름**, **Stateless 복원(서버 메모리를 비워도 state 토큰으로 계속)**, **차트·가이드 오프라인 폴백**.
 
-**v0.4 실측:** `76 tests OK` (단위·시나리오, 라이브 4건 skip) + `9 tests OK` (HTTP E2E) + `4 tests OK` (Liner 라이브, v0.3 기준).
+**v0.5 실측:** `117 tests OK` (단위·시나리오, 라이브 7건 skip) + `16 tests OK` (HTTP E2E) + `7 tests OK` (Liner 라이브: chat·search web·search agent·quick answer·visualization).
+
+v0.5 신규 테스트 파일: `tests/test_ransomware.py`(17), `tests/test_categories.py`(9), `tests/test_stateless.py`(12).
 
 ---
 
@@ -154,16 +192,50 @@ LINER_LIVE=1 python -m unittest tests.test_live_liner -v
 
 ---
 
-## 8. 한계
+## 8. Vercel 배포 (서버리스)
+
+```bash
+# 1) Vercel CLI (또는 대시보드에서 저장소 연결)
+npm i -g vercel && vercel link
+
+# 2) 환경변수 (대시보드 → Settings → Environment Variables 와 동일)
+vercel env add LINER_API_KEY production      # sk_live_... (필수)
+vercel env add LINER_MODEL production        # liner-mark-1.3 (선택)
+vercel env add LINER_TIMEOUT production      # 120 (선택)
+vercel env add LINER_OFFLINE production      # 0 (키 없이 시연하려면 1)
+
+# 3) 배포
+vercel --prod
+```
+
+| 파일 | 역할 |
+|---|---|
+| `api/index.py` | `app`(Flask WSGI)을 노출하는 Vercel Python 진입점. 프로젝트 루트를 `sys.path`에 넣고 `app.py`를 import |
+| `vercel.json` | `functions.includeFiles`로 `data/ templates/ static/ incident_note/ app.py`를 함수 번들에 포함, `maxDuration: 60`, 모든 경로를 `/api/index`로 rewrite |
+| `requirements.txt` | Vercel이 그대로 설치(flask, python-docx) |
+| `.vercelignore` | `.env`·`out/`·`tests/` 업로드 제외 |
+
+**왜 Stateless인가:** 서버리스는 인스턴스가 바뀌거나 콜드 스타트하면 메모리 세션이 사라집니다. 그래서 모든 응답이 `state` 토큰(사건 상태 스냅샷, 약 20~40KB)을 함께 주고, 화면(`static/app.js`)이 이를 `sessionStorage`에 보관해 매 요청에 싣습니다. 서버는 메모리에 있으면 그대로 쓰고, 없으면 토큰으로 `Agent`를 복원합니다.
+
+- 기존 경로(`POST /api/session`, `POST /api/<sid>/message`)와 404 동작은 그대로라 이전 테스트·클라이언트가 깨지지 않습니다. 토큰이 없으면 예전처럼 404입니다.
+- 키는 토큰에 들어가지 않습니다(스냅샷은 사건 상태만 직렬화, 테스트로 고정).
+- 파일 다운로드(GET)는 `?state=` 쿼리로 복원합니다.
+
+> `includeFiles`를 지원하지 않는 구형 Vercel 프로젝트라면 `builds` 대신 대시보드의 **Root Directory**를 저장소 루트로 두고 배포하세요. 그래도 안 되면 `vercel.json`의 `functions` 블록을 지우고(제로 컨피그) `api/index.py`만으로 배포해도 동작합니다.
+
+---
+
+## 9. 한계
 
 - 법률 자문이 아닙니다. 신고·통지 판단은 규칙 + Liner 근거로 **초안**을 만들고, 최종 판단은 담당자/전문가가 합니다. 자동 제출은 하지 않습니다.
 - M365(Entra·통합 감사·메시지 추적)와 Linux secure/방화벽 로그를 1차 지원합니다. Google Workspace·국내 호스팅 로그는 같은 정규화(`ingest.py`)에 파서를 추가하면 됩니다.
-- 사건 상태는 메모리(세션)에 있습니다. 서버를 재시작하면 사라집니다(데모 목적).
+- 사건 상태는 서버 메모리 **캐시** + 브라우저가 들고 다니는 `state` 토큰(zlib+base64 스냅샷)입니다. 서버가 바뀌어도 이어지지만, 브라우저 저장소를 지우거나 새 기기에서 열면 사건이 보이지 않습니다(계정·DB 영속화는 범위 밖).
+- Visualization 아티팩트는 Liner가 만든 HTML을 `iframe sandbox="allow-scripts"`로 렌더합니다(부모 페이지 접근 불가). 외부 CDN CSS를 못 받는 네트워크에서는 차트 스타일이 단순해질 수 있어 요약 폴백 카드를 함께 둡니다.
 - 실서비스에서는 사서함 원문을 서버에 두지 않고, 마스킹된 요약만 모델로 보내는 구조를 유지해야 합니다.
 
 ---
 
-## 9. 제출물 체크리스트 (11/25 23:59 KST 마감)
+## 10. 제출물 체크리스트 (11/25 23:59 KST 마감)
 
 > 저장소: https://github.com/llxerll/incident-note (제출 전까지 **private 전환 필요** — 현재 공개 상태)
 > 기획서 PDF: 전체본 `docs/인시던트노트_기획서_v1.0.pdf`(12쪽, v0.3 실측 반영) · 요약본 `projects/인시던트노트_기획서요약_v0.3.pdf`
@@ -177,7 +249,20 @@ LINER_LIVE=1 python -m unittest tests.test_live_liner -v
 
 ---
 
-## 10. v0.3 → v0.4 변경 내역 (완성도)
+## 11. v0.4 → v0.5 변경 내역 (10대 분류·랜섬웨어·서버리스)
+
+1. **10대 침해 사고 분류** — `incident_note/categories.py` 카탈로그 + 상단 선택기 + `GET /api/categories`, `POST /api/<sid>/category/<id>`. 유형만 골라도 공통 초동조치·금지행동·법정 기한·즉답 가이드가 즉시 계산됩니다. 대화 한 줄에서도 키워드로 유형을 추정 연결.
+2. **S4 랜섬웨어 깊은 대응(신규)** — EDR·파일 서버(`event_type`)+백업 로그 인제스트, 규칙 6종(`RW_EXTENSION_MASS/RANSOM_NOTE/SHADOW_DELETE/SECURITY_DISABLED/LATERAL/BACKUP_TARGETED`), 랜섬웨어 전용 사실(암호화 호스트·파일·확장자·랜섬노트·백업 상태·섀도 삭제·몸값), P1 고정, 단계별 페이즈(0~10분 → 24~72시간), 5단계 데모 입력.
+3. **몸값 지불 금지 원칙** — `dont_do`에 명시(복호화 보장 없음·재표적·자금 지원), "몸값을 지불할까요?" 발화에 가드레일 경고, 랜섬웨어 경과 보고서에 원칙·대안(백업·복구 도구·KISA 118)을 문장으로 고정. 메일 전용 금기(계정·규칙)는 랜섬웨어 화면에서 추려 냅니다.
+4. **Liner Quick Answer** — `agents/quick-answer`(stream=false) 연동. 유형별 즉답 가이드 카드, 실패·오프라인 시 규칙 기반 안내로 폴백하고 출처를 구분 표기.
+5. **Liner Visualization** — `tools/visualization` 연동. `atlasArtifact.html`을 `iframe srcdoc`로 모달에 렌더, 오프라인/실패 시 구간별 할 일 수 + 다음 기한 요약 카드로 폴백.
+6. **Vercel 서버리스** — `api/index.py`, `vercel.json`, `.vercelignore`, Stateless `state` 토큰(모든 응답 동봉, 요청 시 복원). 기존 세션 경로·404 동작 호환.
+7. **모바일 반응형** — 1280px 이하에서 `.chat-panel { position: static }`, 640px 이하 툴바 전폭·터치 40px·`font-size:16px`(iOS 확대 방지)·타임라인/사실 열 축소, 상단 유형 칩 가로 스크롤, 모달 전폭, 가로 넘침 제거.
+8. **문서** — 유형별 문서 구성(랜섬웨어는 통지문 대신 직원 긴급 공지 `T7_staff_ransom` + `tpl_ransom_report`), 운영 연락 2종(`O_RANSOM_KISA`, `O_BACKUP`) 추가, `_impact_line`이 랜섬웨어 지표를 표기.
+
+---
+
+## 12. v0.3 → v0.4 변경 내역 (완성도)
 
 1. **단계별 재생** — 데모 입력을 대화창으로 한 단계씩 흘려보내는 모드(`POST /api/<sid>/replay/<scenario>` + 화면 재생). 로그·메일 원문은 "📎 파일명 붙여넣기(N줄)"로 접어 보여 주고 [원문 보기]로 펼칩니다. 데모 영상을 편집 없이 한 번에 찍을 수 있습니다.
 2. **심각도 변화 기록** — `severity_history` 로 P3 → P2 → P1 전환 시점과 이유를 남기고, 상단 배지 옆 트레일·대화 알림·사건 리포트에 표시합니다("왜 P1이 됐나"를 되짚을 수 있음).
@@ -187,7 +272,7 @@ LINER_LIVE=1 python -m unittest tests.test_live_liner -v
 6. **문서 내보내기** — 문서별 DOCX 버튼, 미리보기 복사 버튼, 전체 ZIP(`/api/<sid>/docs.zip`: 사건 리포트 + 전 문서 MD·DOCX).
 7. 기타 — 경과 시간 "759분" → "12시간 39분", 시각 없는 메일 판독 항목의 타임라인 표기, Esc/바깥 클릭으로 미리보기 닫기, 640px 이하 화면 여백.
 
-## 11. v0.2 → v0.3 변경 내역
+## 13. v0.2 → v0.3 변경 내역
 
 **버그·정합성**
 1. `LR_IMPOSSIBLE_TRAVEL` 이 `CorrelationId` 만 보고 "60분 내 두 국가" 조건은 구현하지 않았던 문제 → 60분 규칙 구현, 정상 사내 IP가 의심 IP로 섞이던 오탐 수정.

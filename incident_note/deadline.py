@@ -77,6 +77,8 @@ def _intrusion_state(case: Case) -> tuple[str, str]:
         return "confirmed", "관리자 권한 탈취(secure 로그로 확인)"
     if t == "ato":
         return "confirmed", "메일 계정 침해(로그인·감사·추적 로그로 확인)"
+    if t == "ransom":
+        return "confirmed", "랜섬웨어 감염(파일 암호화·랜섬노트로 확인)"
     if t in ("spoof", "lookalike"):
         return "none", "우리 시스템 침해가 아니라 발신자 표시 위조(계정 접근 흔적 없음)"
     if t == "unknown":
@@ -176,8 +178,14 @@ def operational(case: Case, rules: dict | None = None) -> list[OperationalContac
             triggered = transfer in ("done", "pending")
             why = "금전 피해 발생·사기 시도" if triggered else ""
         elif cid == "O_KISA_118":
-            triggered = intr in ("ato", "root")
+            triggered = intr in ("ato", "root", "ransom")
             why = "침해 대응 지원 필요" if triggered else ""
+        elif cid == "O_RANSOM_KISA":
+            triggered = intr == "ransom"
+            why = "랜섬웨어 복구 지원·복호화 도구 확인(몸값 지불 금지)" if triggered else ""
+        elif cid == "O_BACKUP":
+            triggered = intr == "ransom"
+            why = "오프라인 백업 사본 무결성 확인·복구 순서 결정" if triggered else ""
         elif cid == "O_INSURER":
             triggered = case.value("insurance") is True
             why = "사이버 보험 가입" if triggered else ""

@@ -1,0 +1,30 @@
+{
+  "title": "S4. 랜섬웨어 감염 — 파일 암호화·섀도 삭제·백업 공격 (v0.5 신규)",
+  "summary": "파일 서버 2대·회계 PC 1대가 .locked로 암호화, 랜섬노트 생성, 섀도 복사본 삭제, 백업 작업 실패. 몸값 지불 금지·백업 격리·KISA/개보위 24h/72h 신고 계산까지 깊게 시연한다.",
+  "org_name": "(주)한빛물류",
+  "org_domains": [
+    "hanbit-logis.example"
+  ],
+  "aware_at": "2026-11-20 07:40",
+  "logs": [
+    "edr_events.csv",
+    "backup_jobs.csv"
+  ],
+  "emls": [],
+  "facts": {
+    "org_country": "KR",
+    "org_size": 38,
+    "is_ict_service_provider": true,
+    "personal_data_leak": "suspected",
+    "affected_count": 1300,
+    "sensitive_or_unique_id": false,
+    "insurance": false
+  },
+  "demo_inputs": [
+    "출근하니 파일 서버가 안 열리고 파일 이름 뒤에 .locked가 붙어 있어요. 바탕화면에 README_RESTORE_9f2c.txt가 생겼습니다. 방금 알았어요.",
+    "@file:edr_events.csv\n@file:backup_jobs.csv",
+    "랜섬노트에는 72시간 안에 0.5 비트코인을 보내라고 합니다. 백업 서버가 같은 랙에 있고 공유 폴더로 연결되어 있어요.",
+    "파일 서버 2대와 회계 PC 1대가 암호화됐고 임직원 PC는 아직 괜찮아 보입니다. 고객 배송 문의 1,300명분이 파일 서버에 있었고 주민번호는 없습니다.",
+    "몸값을 지불하면 복구가 될까요? 일단 서버를 재부팅해 볼까요?"
+  ]
+}

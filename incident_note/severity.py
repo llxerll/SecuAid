@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import categories as category_mod
 from .case import Case
 from .classify import Classification
 from .detect import DetectionResult
@@ -85,6 +86,17 @@ def evaluate(case: Case, det: DetectionResult, cls: Classification) -> Severity:
         level = "P4"
         evidence = cls.level
         reasons.append("우리 계정 접근 흔적 없음 — 스푸핑/유사 도메인으로 분류")
+    elif level not in ("P1",) and cls.type == "ransom":
+        level = "P1"
+        evidence = "확인" if cls.level == "확인" else "추정"
+        reasons.append("파일 암호화·랜섬노트 확인 — 업무 중단과 추가 확산 위험")
+        if case.value("backup_status") == "at_risk":
+            reasons.append("백업이 같은 망에 노출 — 오프라인 사본 보호가 최우선")
+    elif level not in ("P1",) and cls.type in ("cloud", "webdb", "insider", "ddos", "supply"):
+        hint_level, hint_why = category_mod.severity_hint(case.value("category") or cls.type)
+        level = hint_level if hint_level in LEVELS else "P3"
+        evidence = cls.level if cls.level in ("확인", "추정") else "추정"
+        reasons.append(hint_why)
     elif level not in ("P1",) and cls.type == "unknown":
         level = "P3"
         evidence = "미확인"
@@ -103,6 +115,9 @@ def evaluate(case: Case, det: DetectionResult, cls: Classification) -> Severity:
         escalate.append("개인정보 유출이 확인되고 1천 명 이상·민감정보이면 P1")
     if len(det.suspect_accounts) < 2:
         escalate.append("같은 공격자 IP로 다른 계정 로그인이 나오면 P1")
+    if cls.type == "ransom":
+        escalate.append("암호화 호스트가 백업 서버·도메인 컨트롤러로 번지면 즉시 범위 재평가")
+        escalate.append("개인정보 DB가 암호화·유출됐다면 72시간 통지·신고 판단 착수")
 
     meta = LEVELS[level]
     return Severity(level, meta["name"], reasons or ["판단 근거 없음"], meta["report"], meta["must"], escalate, evidence)

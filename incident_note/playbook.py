@@ -10,6 +10,7 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import categories as category_mod
 from .case import Case
 from .classify import Classification
 from .detect import DetectionResult
@@ -31,9 +32,21 @@ def load_tree() -> dict:
     return json.loads((DATA / "playbook_tree.json").read_text(encoding="utf-8"))
 
 
+def _generic_category(case: Case):
+    """핵심 4종이 아닌 6개 유형 — 카탈로그의 공통 초동조치를 그대로 쓴다."""
+    cat = category_mod.get(case.value("category"))
+    return cat if cat and not cat.deep else None
+
+
+def _is_ransom(case: Case, cls: Classification | None = None) -> bool:
+    return (cls is not None and cls.type == "ransom") or case.value("incident_type") == "ransom"
+
+
 def select_cards(case: Case, det: DetectionResult, cls: Classification) -> list[str]:
     rules = set(det.rules_hit())
     cards: list[str] = []
+    if _is_ransom(case, cls):
+        cards.append("C12_9")
     if case.value("transfer_status") in ("done", "pending"):
         cards.append("C12_1")
     if cls.type == "root":
@@ -67,11 +80,13 @@ def phase_now(case: Case) -> dict:
             break
     if minutes >= PHASES[-1][2]:
         pid = PHASES[-1][0]
-    for p in tree.get("phases", []):
+    ransom = bool(case.value("incident_type") == "ransom" and tree.get("ransom", {}).get("phases"))
+    phases = tree["ransom"]["phases"] if ransom else tree.get("phases", [])
+    for p in phases:
         if p.get("id") == pid:
             return {"id": pid, "window": p.get("window"), "goal": p.get("goal", ""),
                     "tasks": p.get("tasks", []), "exit": p.get("exit", ""),
-                    "elapsed_minutes": minutes}
+                    "elapsed_minutes": minutes, "type": "ransom" if ransom else "default"}
     return {"id": pid, "window": "", "goal": "", "tasks": [], "exit": "", "elapsed_minutes": minutes}
 
 
@@ -79,6 +94,16 @@ def first_five(case: Case, det: DetectionResult) -> list[dict]:
     tree = load_tree()
     items = []
     transfer = case.value("transfer_status") in ("done", "pending")
+    if case.value("incident_type") == "ransom" and tree.get("ransom", {}).get("first_five"):
+        return [{"n": it["n"], "action": it["action"], "who": it["who"],
+                 "done_when": it["done_when"], "status": it.get("status", "대기")}
+                for it in tree["ransom"]["first_five"]]
+    cat = _generic_category(case)
+    if cat:
+        return [{"n": i, "action": a, "who": _who_for(a),
+                 "done_when": "실행 시각·담당·결과 기록",
+                 "status": "최우선" if i <= 2 else "대기"}
+                for i, a in enumerate(cat.first_15min, 1)]
     for it in tree["first_five"]["items"]:
         status = "대기"
         action = it["action"]
@@ -121,6 +146,20 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
             return
         actions.append({"action": text, "who": who, "ref": ref, "kind": kind, "priority": priority})
 
+    # 랜섬웨어 — 확산 차단과 백업 보호가 금전 손실보다 먼저인 경우가 많다(v0.5)
+    if _is_ransom(case, cls):
+        push("감염 호스트를 네트워크에서 분리 — 전원은 끄지 말고 화면·랜섬노트를 촬영해 보존", "IT/관리자", "S4 0~10분", "0~10분", 1)
+        push("백업 서버·NAS·외부 저장장치를 즉시 분리하고 오프라인 사본 무결성 확인(읽기 전용)", "IT/관리자", "S4 0~10분", "0~10분", 1)
+        push("몸값 지불 금지 — 복호화 보장 없음·추가 표적. 복구 도구(No More Ransom)·KISA 118 상담", "대표", "S4 0~10분", "0~10분", 2)
+        push("암호화 확장자·최초 암호화 시각·감염 호스트 수를 기록해 신고서 근거로 남긴다", "사건 책임자", "S4 1~4시간", "조사", 3)
+        push("백업에서 복구 가능한 마지막 정상 시점과 무결성 확인(복원 전 검사)", "IT/관리자", "S4 1~4시간", "조사", 3)
+
+    # 핵심 4종 밖의 6개 유형 — 유형 카탈로그의 공통 초동조치를 그대로 얹는다.
+    generic = _generic_category(case)
+    if generic:
+        for i, a in enumerate(generic.first_15min):
+            push(a, _who_for(a), f"10대 유형 {generic.no}", "15분", 2 + i // 3)
+
     # 사실 기반 최우선 행동
     if case.value("transfer_status") in ("done", "pending"):
         push("송금 은행 공식 대표번호로 지급정지·회수(리콜) 요청 — 의심 메일 속 번호는 쓰지 않는다", "재무·대표", "12.1", "0~10분", 1)
@@ -144,7 +183,9 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
 
     # 개인정보 판단
     if case.value("personal_data_leak") in ("suspected", "confirmed"):
-        push("사서함에 보관된 개인정보 항목·규모 확인(이름·연락처·주소 등) — 확인된 범위로 신고", "개인정보 담당", "7.1", "조사", 6)
+        place = "암호화된 파일 서버·공유 폴더" if _is_ransom(case, cls) else "사서함"
+        push(f"{place}에 보관된 개인정보 항목·규모 확인(이름·연락처·주소 등) — 확인된 범위로 신고",
+             "개인정보 담당", "7.1", "조사", 6)
 
     actions.sort(key=lambda a: a["priority"])
     return actions[:12]
@@ -199,6 +240,16 @@ def dont_do(case: Case, det: DetectionResult, cls: Classification) -> list[str]:
     if cls.type == "root":
         out = [x for x in out if "재부팅" not in x]
         out.append("재부팅·재설치·프로세스 즉시 삭제 금지 — 메모리·흔적이 사라진다")
+    cat = _generic_category(case)
+    if cat:
+        out = list(cat.dont_do) + out
+    if _is_ransom(case, cls):
+        # 랜섬웨어는 메일 전용 금기(계정·규칙·메일 원본)를 그대로 두면 현장이 헷갈린다. 관련 항목만 추린다.
+        mail_only = ("메일", "규칙", "침해 계정", "세션", "앱 비밀번호", "위임", "암호만")
+        out = [x for x in out if not any(k in x for k in mail_only)]
+        for x in tree.get("ransom", {}).get("dont_do", []):
+            if x not in out:
+                out.append(x)
     return out
 
 
@@ -223,7 +274,10 @@ def persistence_items(case: Case, det: DetectionResult) -> list[dict]:
 def recovery(case: Case, det: DetectionResult) -> list[dict]:
     tree = load_tree()
     out = []
-    for i, item in enumerate(tree.get("recovery_gate", []), 1):
+    gate = tree.get("recovery_gate", [])
+    if case.value("incident_type") == "ransom" and tree.get("ransom", {}).get("recovery_gate"):
+        gate = tree["ransom"]["recovery_gate"]
+    for i, item in enumerate(gate, 1):
         out.append({"n": i, "item": item, "status": "미완료"})
     return out
 
@@ -249,6 +303,10 @@ def guardrail(text: str, case: Case, cls: Classification | None = None) -> list[
         warn.append("암호 변경만으로는 부족합니다. 세션·토큰 철회, 앱 비밀번호, OAuth 동의, 전달 규칙, 위임을 함께 제거해야 합니다.")
     if any(k in t for k in ("답장", "회신")) and any(k in t for k in ("공격자", "의심 메일", "피싱")):
         warn.append("공격자 메일에 답장해 확인하지 마세요. 원장에 있는 별도 번호로 확인합니다.")
+    if _is_ransom(case, cls) and any(k in t for k in ("몸값", "랜섬", "비트코인", "지불", "협상")):
+        if any(k in t for k in ("지불", "보내", "내자", "내야", "협상", "결제", "송금")):
+            warn.append("몸값 지불은 권고하지 않습니다. 복호화 보장이 없고, 지불 후에도 데이터가 공개·재판매되며 같은 공격자의 추가 표적이 됩니다. "
+                        "대신 백업 오프라인 사본 확인 — 복구 도구(No More Ransom)·KISA 118 상담·신고 기한 산정으로 진행하세요.")
     if any(k in t for k in ("피해 없", "괜찮", "문제 없")) and case.value("personal_data_leak") == "unknown":
         warn.append("'피해 없음'이라고 단정할 수 없습니다. 결과가 없다는 것은 '피해 없음'의 증거가 아닙니다(보존 기간·수집 범위 한계).")
     return warn

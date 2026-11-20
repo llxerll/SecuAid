@@ -30,7 +30,22 @@ LABELS = {
     "spoof": "도메인 스푸핑 — 우리 계정이 아니라 발신자 표시가 위조됨",
     "lookalike": "유사 도메인 사칭 — 철자가 비슷한 외부 도메인",
     "root": "관리자 권한 탈취(서버 장악) — 플레이북 범위 밖, 전문 대응 필요",
+    "ransom": "랜섬웨어 감염 — 파일 암호화·랜섬노트 확인, 격리·복구 우선",
+    "cloud": "클라우드·API 키 유출 — 키 폐기·사용 흔적 확인",
+    "webdb": "웹 애플리케이션·DB 유출 — 노출 경로 차단·범위 산정",
+    "insider": "내부자 정보 유출 — 권한 회수·증거 보존·법무 판단",
+    "ddos": "DDoS·서비스 장애 — 가용성 방어·통신사 연계",
+    "supply": "공급망·악성코드 감염 — 감염 경로 차단·배포물 회수",
     "unknown": "판별 근거 부족 — 추가 자료 필요",
+}
+
+RANSOM_BASIS = {
+    "RW_EXTENSION_MASS": "파일 대량 암호화(변조 확장자) 이벤트가 EDR·파일 서버 로그에 기록됨",
+    "RW_RANSOM_NOTE": "랜섬노트 파일 생성 기록",
+    "RW_SHADOW_DELETE": "볼륨 섀도 복사본 삭제(복구 수단 제거)",
+    "RW_SECURITY_DISABLED": "보안·백업 서비스 중지 기록",
+    "RW_LATERAL": "원격 공유 접근으로 측면 이동·백업 공격 시도",
+    "RW_BACKUP_TARGETED": "백업 작업 실패·백업 대상 접근 불가",
 }
 
 
@@ -56,6 +71,17 @@ def classify(case: Case, det: DetectionResult) -> Classification:
     admin = case.value("admin_compromise") is True or bool(rules & {"SR_ROOT_LOGIN", "SR_PERSIST_SERVICE"})
     eml = case.eml_triage[-1] if case.eml_triage else {}
     verdicts = {e.get("verdict") for e in case.eml_triage}
+
+    ransom_rules = {r for r in rules if r.startswith("RW_")}
+    if ransom_rules and not admin:
+        basis = [RANSOM_BASIS[r] for r in sorted(ransom_rules) if r in RANSOM_BASIS]
+        confirmed = bool(ransom_rules & {"RW_EXTENSION_MASS", "RW_RANSOM_NOTE"})
+        missing = []
+        if "RW_BACKUP_TARGETED" not in ransom_rules:
+            missing.append("백업 오프라인 사본 존재·무결성(백업 담당 확인 필요)")
+        missing.append("최초 감염 경로(메일·원격접속·공급망) — 조사 중")
+        return Classification("ransom", LABELS["ransom"], "확인" if confirmed else "추정", basis, missing,
+                              ["C12_9"])
 
     if admin:
         basis = []

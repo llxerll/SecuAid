@@ -137,6 +137,8 @@ def detect(logs: list[ingest.ParsedLog], *, org_country: str = "KR",
     trace = by_kind[ingest.TRACE]
     firewall = by_kind[ingest.FIREWALL]
     syslog = by_kind[ingest.SYSLOG]
+    edr = by_kind[ingest.EDR]
+    backup = by_kind[ingest.BACKUP]
 
     def add(rule_id: str, ts, summary: str, severity: str, source: str,
             signal: str = "", actor: str = "", detail: dict | None = None) -> None:
@@ -360,6 +362,55 @@ def detect(logs: list[ingest.ParsedLog], *, org_country: str = "KR",
                 f"{r.get('src_host') or r.get('src_ip')} → {dst}:3389 아웃바운드 허용 (세션 {sessions}, 송신 {bytes_out:,}B)",
                 sev, ingest.FIREWALL, "SIG_UNKNOWN_SENT", r.get("src_host"), {"dst": dst, "bytes_out": bytes_out})
 
+    # ---------------------------------------------------------------- EDR·파일 서버 (v0.5 랜섬웨어)
+    SEC_OFF_WORDS = ("veeam", "backup", "defender", "antivirus", "백신", "windows defender", "mssql", "sql server")
+    enc_by_host: dict[str, list[ingest.Record]] = defaultdict(list)
+    for r in edr:
+        ev = r.get("event_type").lower()
+        host = r.get("host")
+        detail, path, proc = r.get("detail"), r.get("path"), r.get("process")
+        if ev in ("file_encrypted", "mass_file_rename", "encrypted"):
+            enc_by_host[host].append(r)
+        elif ev in ("ransom_note_written", "ransom_note"):
+            add("RW_RANSOM_NOTE", r.ts, f"{host} 랜섬노트 생성 — {path or detail}", "critical",
+                ingest.EDR, "SIG_RANSOMWARE", host, {"path": path, "host": host})
+        elif ev in ("shadow_copy_delete", "vss_delete"):
+            add("RW_SHADOW_DELETE", r.ts, f"{host} 볼륨 섀도 복사본 삭제 — {proc or detail} (복구 수단 제거)",
+                "critical", ingest.EDR, "SIG_RANSOMWARE", host, {"process": proc})
+        elif ev in ("service_stop", "security_disabled"):
+            blob = f"{proc} {detail}".lower()
+            if any(w in blob for w in SEC_OFF_WORDS):
+                add("RW_SECURITY_DISABLED", r.ts, f"{host} 보안·백업 서비스 중지 — {proc or detail}",
+                    "high", ingest.EDR, "SIG_RANSOMWARE", host, {"process": proc})
+        elif ev in ("smb_lateral", "remote_share"):
+            dst = r.get("dst_ip")
+            if dst:
+                suspect_ips.add(dst)
+            add("RW_LATERAL", r.ts, f"{host} → {dst or r.get('path') or '원격 공유'} 접근 — 측면 이동·백업 공격 의심",
+                "high", ingest.EDR, "SIG_RANSOMWARE", host, {"dst": dst})
+
+    for host, rows in enc_by_host.items():
+        files = 0
+        for r in rows:
+            m = re.search(r"(?:files|count)\s*=\s*(\d[\d,]*)", r.get("detail") or "")
+            files += int(m.group(1).replace(",", "")) if m else 1
+        ext = next((_ext_of(r.get("path")) for r in rows if _ext_of(r.get("path"))), "")
+        ts = min((r.ts for r in rows if r.ts), default=None)
+        add("RW_EXTENSION_MASS", ts,
+            f"{host} 파일 {files:,}건이 {ext or '변조 확장자'}로 변경 — 대량 암호화(랜섬웨어)",
+            "critical", ingest.EDR, "SIG_RANSOMWARE", host,
+            {"files": files, "ext": ext, "host": host, "events": len(rows)})
+
+    for r in backup:
+        status = (r.get("status") or "").lower()
+        detail = (r.get("detail") or "")
+        job = r.get("job") or ""
+        if status in ("failed", "fail", "error") or any(k in detail.lower() for k in ("offline", "deleted", "unreachable", "암호화")):
+            add("RW_BACKUP_TARGETED", r.ts,
+                f"백업 작업 '{job}' {status or '이상'} — {detail or '백업 대상 접근 불가'}",
+                "critical", ingest.BACKUP, "SIG_RANSOMWARE", r.get("backup_host"),
+                {"job": job, "status": status, "detail": detail})
+
     # ---------------------------------------------------------------- EML 판독 결과
     if is_eml:
         verdict = is_eml.get("verdict", "unknown")
@@ -394,6 +445,20 @@ def detect(logs: list[ingest.ParsedLog], *, org_country: str = "KR",
         if not by_kind[kind]:
             res.notes.append(f"{label}가 없습니다. 이 로그가 없으면 관련 신호는 '미확인'이며, 결과 없음이 피해 없음을 뜻하지 않습니다.")
     return res
+
+
+def _ext_of(path: str) -> str:
+    """변조 확장자만 뽑는다(.locked, .encrypted 등). 원본 확장자(.docx)는 무시."""
+    if not path:
+        return ""
+    m = re.findall(r"(\.[A-Za-z0-9]{3,10})", path)
+    if not m:
+        return ""
+    for ext in reversed(m):
+        if ext.lower() not in (".doc", ".docx", ".xls", ".xlsx", ".pdf", ".txt", ".csv", ".jpg", ".png",
+                               ".zip", ".bak", ".mdf", ".ldf", ".eml", ".pst", ".hwp", ".hwpx", ".ppt", ".pptx"):
+            return ext
+    return ""
 
 
 def hostname_from_syslog(logs: list[ingest.ParsedLog]) -> str:

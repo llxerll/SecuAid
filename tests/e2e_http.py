@@ -81,8 +81,27 @@ class TestWebApp(unittest.TestCase):
     def test_health_and_scenarios(self):
         data = http_json("/api/health")
         self.assertTrue(data["ok"])
-        self.assertEqual(len(data["scenarios"]), 3)
+        self.assertEqual(len(data["scenarios"]), 4)
         self.assertIn("liner", data)
+        self.assertEqual(len(data["categories"]), 10)
+        self.assertTrue(data["features"]["stateless"])
+
+    def test_categories_api(self):
+        data = http_json("/api/categories")
+        self.assertEqual([c["no"] for c in data["categories"]], list(range(1, 11)))
+        self.assertEqual(len(data["deep"]), 5)  # BEC·ATO가 S1을 공유한다
+
+    def test_mobile_css_unsticks_chat(self):
+        _, css = http("/static/style.css")
+        self.assertIn("@media (max-width: 1280px)", css)
+        self.assertIn("position: static", css)
+        for token in (".cat-chip", ".viz-frame", "100vw" if False else "max-width: 640px"):
+            self.assertIn(token, css)
+
+    def test_category_chips_in_html(self):
+        _, html = http("/")
+        for el in ('id="catChips"', 'id="guide"', 'id="vizBtn"', 'id="vizFrame"', 'id="guideBtn"'):
+            self.assertIn(el, html)
 
     def test_session_and_message(self):
         data = http_json("/api/session", "POST", {})
@@ -132,10 +151,71 @@ class TestWebApp(unittest.TestCase):
         self.assertIn("00_사건_리포트.md", names)
         self.assertGreaterEqual(sum(n.endswith(".md") for n in names), 11)
 
+    def test_post_download_endpoints(self):
+        """버튼 다운로드 — state 를 본문에 실어 URL 길이 제한 없이 받는다."""
+        sid = http_json("/api/session", "POST", {})["session"]
+        http_json(f"/api/{sid}/scenario/s4_ransomware", "POST", {})
+        status, md = http(f"/api/{sid}/download/tpl_ransom_report", "POST", {})
+        self.assertEqual(status, 200)
+        self.assertIn("몸값 지불 금지", md)
+        status, body = http(f"/api/{sid}/download/tpl_ransom_report.docx", "POST", {}, raw=True)
+        self.assertIn(status, (200, 501))
+        if status == 200:
+            self.assertTrue(body.startswith(b"PK"))
+        status, body = http(f"/api/{sid}/download/zip", "POST", {}, raw=True)
+        self.assertEqual(status, 200)
+        self.assertTrue(body.startswith(b"PK"))
+
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             http("/api/nope/message", "POST", {"text": "hi"})
         self.assertEqual(ctx.exception.code, 404)
+
+    def test_ransomware_scenario_over_http(self):
+        sid = http_json("/api/session", "POST", {})["session"]
+        board = http_json(f"/api/{sid}/scenario/s4_ransomware", "POST", {})["board"]
+        self.assertEqual(board["severity"]["level"], "P1")
+        self.assertEqual(board["classification"]["type"], "ransom")
+        ids = {d["id"] for d in board["docs"]}
+        self.assertIn("tpl_ransom_report", ids)
+        self.assertIn("T7_staff_ransom", ids)
+        status, md = http(f"/api/{sid}/doc/tpl_ransom_report")
+        self.assertEqual(status, 200)
+        self.assertIn("몸값 지불 금지", md)
+
+    def test_category_selection_and_guide_over_http(self):
+        sid = http_json("/api/session", "POST", {})["session"]
+        data = http_json(f"/api/{sid}/category/CAT09_DDOS_OUTAGE", "POST", {})
+        self.assertEqual(data["board"]["category"]["no"], 9)
+        self.assertTrue(data["board"]["actions"])
+        self.assertEqual(data["guide"]["status"], "offline")  # LINER_OFFLINE=1
+        self.assertTrue(data["guide"]["answer"])
+
+    def test_viz_offline_fallback_over_http(self):
+        sid = http_json("/api/session", "POST", {})["session"]
+        body = http_json(f"/api/{sid}/viz", "POST", {})
+        self.assertFalse(body["viz"]["ok"])
+        self.assertEqual(body["html"], "")
+        self.assertTrue(body["viz"]["reason"])
+
+    def test_stateless_resume_over_http(self):
+        """서버 메모리를 비워도(다른 인스턴스) state 토큰으로 이어지는지 실제 HTTP로 확인."""
+        sid = http_json("/api/session", "POST", {})["session"]
+        data = http_json(f"/api/{sid}/replay/s1_bec_account_change", "POST", {})
+        for st in data["steps"][:3]:
+            data = http_json(f"/api/{sid}/message", "POST", {"text": st["text"]})
+        state = data["state"]
+        self.assertTrue(state)
+
+        app_module.SESSIONS.clear()
+        with self.assertRaises(urllib.error.HTTPError):
+            http(f"/api/{sid}/board")
+
+        board = http_json(f"/api/{sid}/board?state={state}")["board"]
+        self.assertGreaterEqual(len(board["findings"]), 1)
+        resumed = http_json(f"/api/{sid}/message", "POST", {"text": "방금 미래상사에서 1,870만 원을 이미 송금했다고 합니다.",
+                                                             "state": state})
+        self.assertEqual(resumed["board"]["severity"]["level"], "P1")
 
 
 if __name__ == "__main__":
