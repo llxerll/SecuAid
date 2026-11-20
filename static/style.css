@@ -27,7 +27,7 @@
 * { box-sizing: border-box; }
 html, body { max-width: 100%; overflow-x: hidden; }
 img, iframe, svg, pre, table { max-width: 100%; }
-[hidden] { display: none !important; }
+[hidden], .hidden { display: none !important; }
 
 body {
   margin: 0;
@@ -221,8 +221,11 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
 .panel-head:first-child { margin-top: 2px; }
 .hint { color: var(--muted); font-size: 11px; }
 
-/* 대화 패널 */
-.chat-panel { position: sticky; top: 84px; display: flex; flex-direction: column; }
+/* 대화 패널 — 화면 높이에 맞춰 고정: 입력창이 항상 보이게 */
+.chat-panel {
+  position: sticky; top: 84px; display: flex; flex-direction: column;
+  max-height: calc(100vh - 96px);
+}
 .quick-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .quick {
   background: rgba(56, 189, 248, .08); color: #cfe6ff;
@@ -238,7 +241,7 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
 .btn.attach:hover { border-color: var(--accent); color: #fff; }
 .attach-row .hint { flex: 1 1 140px; line-height: 1.35; }
 .chat {
-  height: clamp(240px, 42vh, 460px); overflow-y: auto;
+  flex: 1 1 220px; min-height: 160px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 8px; padding: 4px;
   scrollbar-width: thin;
 }
@@ -350,7 +353,7 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
 .badge.미확인 { background: rgba(147, 163, 189, .14); color: var(--muted); }
 .dontdo { margin: 0; padding-left: 17px; color: #ffc7ce; font-size: 12px; }
 .dontdo li { margin-bottom: 5px; }
-.facts { font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.facts { font-size: 12px; display: flex; flex-direction: column; gap: 4px; max-width: 720px; }
 .fact { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; gap: 7px; }
 .fact .k { color: var(--muted); }
 .fact .v { word-break: break-word; overflow-wrap: anywhere; }
@@ -482,8 +485,8 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
   }
 
   .workspace { grid-template-columns: minmax(0, 1fr); padding: 10px 12px 6px; gap: 10px; }
-  .chat-panel { position: static; }
-  .chat { height: min(46vh, 380px); min-height: 220px; }
+  .chat-panel { position: static; max-height: none; }
+  .chat { flex: 0 0 auto; height: min(46vh, 380px); min-height: 210px; }
   .board-panel { padding: 8px 10px 12px; }
   /* 데스크톱 3탭은 모바일에서 숨긴다 — 상단 탭이 같은 역할을 한다 */
   .board-tabs { display: none; }
