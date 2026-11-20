@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime, timedelta
@@ -133,6 +134,11 @@ def urgent_branches(case: Case, det: DetectionResult) -> list[dict]:
     return out
 
 
+def action_key(text: str) -> str:
+    """체크리스트 항목의 안정적인 키 — 같은 문장이면 사건이 다시 계산돼도 같은 키."""
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
+
+
 def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Severity) -> list[dict]:
     tree = load_tree()
     cards = select_cards(case, det, cls)
@@ -144,7 +150,8 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
         # 플레이북 카드 항목(우선순위 4 이상)은 이미 앞에 나온 행동과 주제가 같으면 다시 넣지 않는다.
         if priority >= 4 and any(_same_topic(text, a["action"]) or _similar(text, a["action"]) for a in actions):
             return
-        actions.append({"action": text, "who": who, "ref": ref, "kind": kind, "priority": priority})
+        actions.append({"key": action_key(text), "action": text, "who": who, "ref": ref, "kind": kind,
+                        "priority": priority})
 
     # 랜섬웨어 — 확산 차단과 백업 보호가 금전 손실보다 먼저인 경우가 많다(v0.5)
     if _is_ransom(case, cls):
@@ -188,7 +195,12 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
              "개인정보 담당", "7.1", "조사", 6)
 
     actions.sort(key=lambda a: a["priority"])
-    return actions[:12]
+    out = actions[:12]
+    for a in out:
+        mark = case.done.get(a["key"])
+        a["done"] = bool(mark)
+        a["done_at"] = mark.get("at") if mark else None
+    return out
 
 
 def _who_for(action: str) -> str:

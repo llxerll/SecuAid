@@ -1,213 +1,125 @@
-/* 실드메이트 72 (ShieldMate 72) — 화면 로직 (의존성 없음) · v0.7
-   - 서버리스(Vercel) 대응: 사건 상태 토큰(state)을 브라우저가 보관하고 매 요청에 실어 보낸다.
-   - 10대 사고 유형 선택기, 유형별 즉답 가이드(Quick Answer), 사건 보드 차트(Visualization).
-   - 탭 워크스페이스: PC 는 대화 + 대응 보드(3탭), 모바일(≤900px)은 상단 탭으로 한 화면씩.
-   - 증거 첨부(.csv/.eml): 브라우저에서 읽어(UTF-8→EUC-KR 재시도) 대화로 보낸다. */
-const S = { sid: null, board: null, busy: false, replaying: false, stopReplay: false,
-            state: null, cats: [], cat: null, viz: null };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
+/* 시큐에이드 (SecuAid) — 화면 로직 (의존성 없음) · v0.8
+   - 판정은 즉시, Liner 문장은 뒤따라: /message(defer) → /enrich(브리핑·가이드) · /law(법령 재확인, 병렬)
+   - 상태 토큰(state)을 바꾸는 요청은 한 줄로 세운다(queue) — 동시 요청이 토큰을 갈라놓지 않게.
+   - 72시간 시계: 인지 시각 기준 구간·다음 법정 기한 카운트다운을 1초마다 갱신.
+   - 지금 할 일 체크리스트: 완료 시각이 신고서 '현재까지의 대응'에 들어간다. */
+const S = {
+  sid: null, state: null, board: null, busy: false, replaying: false, stopReplay: false,
+  cats: [], viz: null, lawInFlight: false, liner: false, linerJobs: 0, queue: Promise.resolve(),
+};
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const STORE_KEY = "secuaid:v1";
+const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
 
-const STORE_KEY = "shieldmate72:v1";
-const VIEW_KEY = "shieldmate72:view";
-
+/* ---------------------------------------------------------------- 통신 */
 function persist() {
-  try {
-    if (S.state && S.sid) sessionStorage.setItem(STORE_KEY, JSON.stringify({ sid: S.sid, state: S.state }));
-  } catch (e) { /* 저장 공간 부족 — 메모리 상태로 계속 동작한다 */ }
+  try { if (S.state && S.sid) sessionStorage.setItem(STORE_KEY, JSON.stringify({ sid: S.sid, state: S.state })); }
+  catch (e) { /* 저장 공간 부족 — 메모리로 계속 */ }
 }
-
 function restorePoint() {
-  try {
-    const raw = sessionStorage.getItem(STORE_KEY);
-    if (!raw) return null;
-    const v = JSON.parse(raw);
-    return v && v.sid && v.state ? v : null;
-  } catch (e) { return null; }
+  try { const v = JSON.parse(sessionStorage.getItem(STORE_KEY) || "null"); return v && v.sid && v.state ? v : null; }
+  catch (e) { return null; }
 }
 
-async function api(path, options = {}) {
-  const opts = { headers: { "Content-Type": "application/json" }, ...options };
-  let p = path;
-  if (S.state) {
-    if ((opts.method || "GET") === "GET") {
-      p += (p.includes("?") ? "&" : "?") + "state=" + encodeURIComponent(S.state);
-    } else {
-      opts.body = JSON.stringify({ ...(opts.body ? JSON.parse(opts.body) : {}), state: S.state });
-    }
-  }
-  const res = await fetch(p, opts);
+async function api(path, body) {
+  // 상태 토큰은 항상 본문으로 보낸다(URL 길이 제한 회피). body 가 없으면 GET.
+  const opts = body === undefined
+    ? { method: "GET" }
+    : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, state: S.state || undefined }) };
+  const res = await fetch(path, opts);
   if (!res.ok) {
-    const text = await res.text();
-    const err = new Error(text || res.statusText);
-    err.status = res.status;
-    throw err;
+    let msg = res.statusText;
+    try { const j = await res.json(); msg = j.error || msg; } catch (e) { /* 텍스트 응답 */ }
+    const err = new Error(msg); err.status = res.status; throw err;
   }
   const data = await res.json();
   if (data.state) { S.state = data.state; persist(); }
   return data;
 }
 
-async function fetchDoc(path) {
-  // state 를 본문에 실어 받는다 — 서버리스에서 세션이 사라졌거나 토큰이 길어도 동작한다.
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state: S.state || "" }),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res;
+function enqueue(fn) {
+  const run = S.queue.then(fn, fn);
+  S.queue = run.catch(() => {});
+  return run;
 }
+const post = (path, body = {}) => enqueue(() => api(path, body));
 
-function filenameFrom(res, fallback) {
-  // 서버가 보내는 filename*=UTF-8''…(한글 제목)을 우선 쓰고, 없으면 ASCII 이름.
-  const cd = res.headers.get("Content-Disposition") || "";
-  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-  if (star) { try { return decodeURIComponent(star[1].trim()); } catch (e) { /* 아래로 */ } }
-  const plain = /filename="?([^";]+)"?/i.exec(cd);
-  return plain ? plain[1].trim() : fallback;
-}
-
-async function downloadFile(path, filename) {
-  try {
-    const res = await fetchDoc(path);
-    const buf = await res.arrayBuffer();          // 바이너리를 그대로 받아 Blob 으로
-    const type = res.headers.get("Content-Type") || "application/octet-stream";
-    const blob = new Blob([buf], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filenameFrom(res, filename);
-    a.rel = "noopener";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 8000);
-    if (blob.size < 512) say("system", "내려받은 파일이 비어 있습니다. 다시 시도해 주세요.");
-  } catch (e) {
-    say("system", "다운로드 실패: " + e.message);
+async function withSession(fn) {
+  if (!S.sid) await newSession();
+  try { return await fn(); }
+  catch (e) {
+    if (e.status === 404) { await newSession(); return await fn(); }   // 서버가 상태를 잃음 → 새 세션 1회 재시도
+    throw e;
   }
 }
 
-function setBusy(on, msg = "") {
-  S.busy = on;
-  $("send").disabled = on;
-  $("runScenario").disabled = on;
-  $("makeDocs").disabled = on;
-  $("guideBtn").disabled = on;
-  $("vizBtn").disabled = on;
-  $("replay").textContent = S.replaying ? "■ 재생 정지" : "▶ 단계별 재생";
-  $("typing").textContent = on ? msg || "처리 중…" : "";
+function linerJob(delta) {
+  S.linerJobs = Math.max(0, S.linerJobs + delta);
+  renderMode();
 }
 
-/* ---------------------------------------------------------------- 탭 · 화면 전환 */
-const BOARD_TAB_IDS = { "1": "tab-1", "2": "tab-2", "3": "tab-3" };
-const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
+/* ---------------------------------------------------------------- 화면 상태 */
+function setStage(stage) {
+  document.body.dataset.stage = stage;
+  if (stage === "case" && isMobile() && !document.body.dataset.viewSet) setView("chat");
+}
 
-function setBoardTab(n, opts = {}) {
-  const tab = BOARD_TAB_IDS[String(n)] ? String(n) : "1";
+function setView(v) {
+  const view = String(v);
+  document.body.dataset.viewSet = "1";
+  if (view === "chat" || view === "side") document.body.dataset.view = view;
+  else { document.body.dataset.view = "board"; setBoardTab(view); }
+  document.querySelectorAll(".m-tab").forEach((b) => {
+    const t = b.dataset.tab;
+    b.classList.toggle("is-on", t === view || (document.body.dataset.view === "board" && t === document.body.dataset.boardTab && view !== "chat" && view !== "side"));
+  });
+  if (isMobile()) window.scrollTo({ top: 0 });
+}
+
+function setBoardTab(n) {
+  const tab = ["1", "2", "3", "4"].includes(String(n)) ? String(n) : "1";
   document.body.dataset.boardTab = tab;
   document.querySelectorAll(".b-tab").forEach((b) => {
     const on = b.dataset.tab === tab;
     b.classList.toggle("is-on", on);
     b.setAttribute("aria-selected", on ? "true" : "false");
   });
-  Object.entries(BOARD_TAB_IDS).forEach(([k, id]) => { const el = $(id); if (el) el.hidden = k !== tab; });
-  document.querySelectorAll(".m-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === tab));
-  if (opts.remember !== false && !isMobile()) { try { sessionStorage.setItem(VIEW_KEY, tab); } catch (e) { /* noop */ } }
+  ["1", "2", "3", "4"].forEach((k) => { $("tab-" + k).hidden = k !== tab; });
 }
 
-function setView(v, opts = {}) {
-  const view = String(v || "1");
-  if (view === "chat") {
-    document.body.dataset.view = "chat";
-    document.querySelectorAll(".m-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === "chat"));
-    try { sessionStorage.setItem(VIEW_KEY, "chat"); } catch (e) { /* noop */ }
-    return;
-  }
-  document.body.dataset.view = "board";
-  setBoardTab(view, opts);
-  try { sessionStorage.setItem(VIEW_KEY, view); } catch (e) { /* noop */ }
+function setBusy(on, msg = "") {
+  S.busy = on;
+  ["send", "runScenario", "makeDocs", "startSend"].forEach((id) => { $(id).disabled = on; });
+  $("replay").disabled = on && !S.replaying;
+  $("stopReplay").classList.toggle("hidden", !S.replaying);
+  $("typing").textContent = on ? msg || "처리 중…" : "";
 }
 
-function restoreView() {
-  let view = null;
-  try { view = sessionStorage.getItem(VIEW_KEY); } catch (e) { view = null; }
-  setView(view || (isMobile() ? "chat" : "1"), { remember: false });
-}
-
-function setBadge(id, value, title) {
-  const el = $(id);
-  if (!el) return;
-  el.textContent = String(value);
-  el.title = title || "";
-  el.classList.toggle("hot", Number(value) > 0);
-}
-
-/* ---------------------------------------------------------------- 증거 첨부 */
-function decodeBytes(bytes) {
-  let text = new TextDecoder("utf-8").decode(bytes);
-  if (text.indexOf("\uFFFD") === -1) return text;
-  try {                                    // 오래된 메일 원본은 EUC-KR 인 경우가 많다
-    const kr = new TextDecoder("euc-kr").decode(bytes);
-    if (kr.indexOf("\uFFFD") === -1) return kr;
-  } catch (e) { /* 브라우저가 euc-kr 을 지원하지 않으면 UTF-8 결과를 쓴다 */ }
-  return text;
-}
-
-async function attachFiles(fileList) {
-  const files = Array.from(fileList || []);
-  if (!files.length) return;
-  if (S.busy) { say("system", "지금 처리 중입니다. 끝난 뒤 다시 첨부해 주세요."); return; }
-  const loaded = [];
-  for (const f of files) {
-    try {
-      if (f.size > 8 * 1024 * 1024) { say("system", `${f.name} 은(는) 8MB 를 넘어 건너뜁니다.`); continue; }
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      loaded.push({ name: f.name, text: decodeBytes(bytes) });
-    } catch (e) {
-      say("system", `파일을 읽지 못했습니다: ${f.name}`);
-    }
-  }
-  if (!loaded.length) return;
-  $("attachInfo").textContent = loaded.map((x) => x.name).join(", ");
-  const emls = loaded.filter((x) => /\.eml$/i.test(x.name));
-  const logs = loaded.filter((x) => !/\.eml$/i.test(x.name));
-  if (logs.length) {
-    await sendText(logs.map((x) => x.text).join("\n\n"), {
-      label: logs.map((x) => x.name).join(", "),
-      attachment: logs.map((x) => `### ${x.name}\n${x.text}`).join("\n\n"),
-      busy: "로그 판독 중…",
-    });
-  }
-  for (const eml of emls) {
-    await sendText(eml.text, { label: eml.name, attachment: eml.text, busy: "메일 원본 판독 중…" });
-  }
-}
-
-function bindQuickChips() {
-  const box = $("quickChips");
-  if (!box) return;
-  box.addEventListener("click", (e) => {
-    const chip = e.target.closest(".quick");
-    if (!chip || S.busy) return;
-    $("input").value = chip.dataset.q || "";
-    $("input").focus();
-  });
-}
-
+/* ---------------------------------------------------------------- 대화 */
 function fmt(text) {
-  const safe = esc(text);
-  return safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  return esc(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 }
 
-function say(role, text, attachment) {
+function say(role, text, opts = {}) {
   const div = document.createElement("div");
   div.className = `msg ${role}`;
-  if (role === "bot") div.innerHTML = fmt(text); else div.textContent = text;
-  if (attachment) {
+  if (role === "pending") {
+    div.innerHTML = `<span class="spin" aria-hidden="true"></span><span>${esc(text)}</span>`;
+  } else if (role === "bot" || role === "liner") {
+    div.innerHTML = fmt(text);
+  } else {
+    div.textContent = text;
+  }
+  if (opts.src) {
+    const s = document.createElement("span");
+    s.className = "src"; s.textContent = opts.src;
+    div.appendChild(s);
+  }
+  if (opts.attachment) {
     const det = document.createElement("details");
-    det.innerHTML = `<summary>원문 보기</summary><pre>${esc(attachment.slice(0, 4000))}${attachment.length > 4000 ? "\n…" : ""}</pre>`;
+    det.innerHTML = `<summary>원문 보기</summary><pre>${esc(opts.attachment.slice(0, 4000))}${opts.attachment.length > 4000 ? "\n…" : ""}</pre>`;
     div.appendChild(det);
   }
   $("chat").appendChild(div);
@@ -215,92 +127,146 @@ function say(role, text, attachment) {
   return div;
 }
 
+function askNext(b) {
+  const q = (b.missing || [])[0];
+  const last = $("chat").lastElementChild;
+  if (q && !(last && last.dataset.q === q)) {
+    const d = say("system", "확인 필요 · " + q);
+    d.dataset.q = q;
+  }
+}
+
+/* ---------------------------------------------------------------- 시작 */
 async function init() {
+  setBoardTab("1");
   try {
     const health = await api("/api/health");
-    const liner = health.liner || {};
-    $("modePill").textContent = liner.available ? `Liner ${liner.model}` : "규칙 기반(키 없음)";
-    $("modePill").className = "pill" + (liner.available ? " live" : "");
-    $("apiInfo").textContent = liner.available
-      ? `${liner.base_url} · ${liner.detail}`
-      : "LINER_API_KEY 미설정 — 규칙 기반 모드(판정·기한·문서는 동작)";
+    S.liner = !!(health.liner || {}).available;
     S.cats = health.categories || [];
-    renderCategoryChips();
+    renderCategoryGrid();
     const sel = $("scenario");
-    sel.innerHTML = "";
-    (health.scenarios || []).forEach((s) => {
-      const o = document.createElement("option");
-      o.value = s.id;
-      o.textContent = s.title || s.id;
-      sel.appendChild(o);
-    });
+    sel.innerHTML = (health.scenarios || []).map((s) => `<option value="${esc(s.id)}">${esc(s.title || s.id)}</option>`).join("");
+    renderMode(health.liner);
   } catch (e) {
-    say("system", "서버 상태를 읽지 못했습니다: " + e.message);
+    $("modeText").textContent = "서버 응답 없음";
   }
 
-  restoreView();
   const saved = restorePoint();
   if (saved) {
     try {
       S.sid = saved.sid; S.state = saved.state;
-      const data = await api(`/api/${S.sid}/board`);
-      S.board = data.board;
-      render(data.board);
-      say("system", "이전에 보던 사건을 복원했습니다(서버가 바뀌어도 상태 토큰으로 이어집니다).");
-      return;
-    } catch (e) {
-      S.sid = null; S.state = null;
-      try { sessionStorage.removeItem(STORE_KEY); } catch (err) { /* noop */ }
-    }
+      const data = await api(`/api/${S.sid}/board`, {});
+      if (hasCase(data.board)) {
+        S.board = data.board;
+        setStage("case");
+        render(data.board);
+        say("system", "이전에 보던 사건을 이어서 엽니다.");
+        return;
+      }
+    } catch (e) { /* 새로 시작 */ }
   }
   await newSession();
-  say("system", "사고 유형을 고르거나 상황을 설명하세요. 로그(CSV)·메일 원본(.eml)을 붙여넣거나 아래에서 첨부해도 됩니다.");
+}
+
+function hasCase(b) {
+  if (!b) return false;
+  return !!((b.findings || []).length || b.category || (b.case || {}).aware_at !== "미확인" || (b.docs || []).length);
 }
 
 async function newSession() {
-  S.state = null;
+  S.state = null; S.viz = null;
   try { sessionStorage.removeItem(STORE_KEY); } catch (e) { /* noop */ }
-  const data = await api("/api/session", { method: "POST", body: JSON.stringify({}) });
-  S.sid = data.session;
-  S.board = data.board;
-  S.viz = null;
+  const data = await api("/api/session", {});
+  S.sid = data.session; S.board = data.board;
   $("vizFrame").srcdoc = "";
   render(data.board);
   return data;
 }
 
-function ensureSession() {
-  if (!S.sid) return newSession();
-}
-
-async function retryOnce(fn) {
-  try { return await fn(); }
-  catch (e) {
-    if (e.status === 404) {           // 서버가 상태를 잃었다 → 새 세션 뒤 한 번만 재시도
-      await newSession();
-      return await fn();
-    }
-    throw e;
-  }
-}
-
+/* ---------------------------------------------------------------- 입력 처리 */
 async function sendText(raw, opts = {}) {
   const text = String(raw || "").trim();
   if (!text || S.busy) return;
-  if (opts.label) say("user", `📎 ${opts.label} 첨부`, opts.attachment || null);
+  setStage("case");
+  if (opts.label) say("user", `📎 ${opts.label}`, { attachment: opts.attachment || null });
   else say("user", text);
-  await ensureSession();
-  setBusy(true, opts.busy || "로그·메일 판독 중…");
+  setBusy(true, opts.busy || "판독 중…");
+  let data;
   try {
-    const data = await retryOnce(() => api(`/api/${S.sid}/message`, { method: "POST", body: JSON.stringify({ text }) }));
-    S.board = data.board;
-    render(data.board);
-    if (data.board.reply) say("bot", data.board.reply);
+    data = await withSession(() => post(`/api/${S.sid}/message`, { text, defer: true }));
+    applyBoard(data.board, { reply: true });
   } catch (e) {
     say("system", "오류: " + e.message);
   } finally {
     setBusy(false);
   }
+  if (data) await handlePending(data.board.pending, text);
+}
+
+function applyBoard(b, opts = {}) {
+  const before = (S.board && S.board.severity || {}).level;
+  S.board = b;
+  render(b);
+  if (opts.reply && b.reply) say("bot", b.reply);
+  const after = (b.severity || {}).level;
+  if (before && after && before !== after && hasCase(b)) flashSeverity(before, after, b.severity);
+  askNext(b);
+}
+
+async function handlePending(pending, text = "") {
+  const list = pending || [];
+  if (list.includes("law")) startLaw();
+  const fast = list.filter((t) => ["facts", "narrate", "guide"].includes(t));
+  if (fast.length) await runEnrich(fast, text);
+}
+
+async function runEnrich(tasks, text = "") {
+  const label = tasks.includes("guide") && !tasks.includes("narrate")
+    ? "Liner Quick Answer로 유형별 가이드를 받는 중…" : "Liner Mark가 상황 브리핑을 쓰는 중…";
+  const wait = say("pending", label);
+  const t0 = performance.now();
+  linerJob(+1);
+  try {
+    const data = await post(`/api/${S.sid}/enrich`, { tasks, text });
+    wait.remove();
+    S.board = data.board; render(data.board);
+    if ((data.updated || []).length) say("system", "Liner가 사실을 보탰습니다 · " + data.updated.join(", "));
+    if (data.brief) say("liner", data.brief, { src: `Liner Mark 브리핑 · ${((performance.now() - t0) / 1000).toFixed(1)}초` });
+    if (tasks.includes("guide") && (data.board.guide || {}).status === "live") {
+      say("liner", data.board.guide.answer, { src: "Liner Quick Answer · 유형별 즉답" });
+    }
+  } catch (e) {
+    wait.remove();
+    say("system", "Liner 보강을 건너뜁니다(판정·기한은 그대로 유효): " + e.message);
+  } finally {
+    linerJob(-1);
+  }
+}
+
+function startLaw() {
+  if (S.lawInFlight || ((S.board || {}).law_checks || []).length || !S.sid) return;
+  S.lawInFlight = true;
+  renderLawBadge();
+  const wait = say("pending", "Liner Search Agent가 신고 기한의 법령 근거를 재확인하는 중… (판정은 이미 반영됨)");
+  const t0 = performance.now();
+  linerJob(+1);
+  const sid = S.sid;
+  api(`/api/${sid}/law`, {})                         // 상태를 바꾸지 않으므로 줄 밖에서 동시에 실행
+    .then((r) => (sid === S.sid ? post(`/api/${sid}/law/merge`, { law_check: r.law_check }) : null))
+    .then((data) => {
+      wait.remove();
+      if (!data) return;
+      S.board = data.board; render(data.board);
+      const law = (data.board.law_checks || [])[0] || {};
+      const secs = ((performance.now() - t0) / 1000).toFixed(0);
+      if (law.status === "live") {
+        say("system", `법령 재확인 완료(${secs}초) · ` + ((law.drift || []).length ? "코드 규칙과 차이: " + law.drift.join(" / ") : "코드 규칙과 차이 없음") + " · 근거는 [근거·차트] 탭");
+      } else {
+        say("system", "법령 재확인을 하지 못해 규칙 기준을 유지합니다" + (law.error ? ` (${law.error.slice(0, 80)})` : ""));
+      }
+    })
+    .catch((e) => { wait.remove(); say("system", "법령 재확인 실패 — 규칙 기준 유지: " + e.message); })
+    .finally(() => { S.lawInFlight = false; linerJob(-1); renderLawBadge(); });
 }
 
 async function send() {
@@ -310,26 +276,52 @@ async function send() {
   await sendText(text);
 }
 
-async function runScenario() {
-  if (S.busy) return;
-  const id = $("scenario").value;
-  if (!id) return;
-  setBusy(true, "시나리오 실행 중… (Liner 호출 시 최대 60초)");
-  say("system", `시나리오 실행: ${id}`);
-  try {
-    await ensureSession();
-    const t0 = Date.now();
-    const data = await retryOnce(() => api(`/api/${S.sid}/scenario/${id}`, { method: "POST", body: JSON.stringify({}) }));
-    S.board = data.board;
-    render(data.board);
-    say("bot", `시나리오 완료 — ${((Date.now() - t0) / 1000).toFixed(1)}초, 탐지 ${(S.board.findings || []).length}건, ` +
-      `문서 ${(S.board.docs || []).length}종. 오른쪽 판정·기한을 확인하세요.`);
-    await maybeAutoGuide();
-  } catch (e) {
-    say("system", "오류: " + e.message);
-  } finally {
-    setBusy(false);
+/* ---------------------------------------------------------------- 증거 첨부 */
+function decodeBytes(bytes) {
+  const text = new TextDecoder("utf-8").decode(bytes);
+  if (text.indexOf("�") === -1) return text;
+  try { const kr = new TextDecoder("euc-kr").decode(bytes); if (kr.indexOf("�") === -1) return kr; }
+  catch (e) { /* euc-kr 미지원 */ }
+  return text;
+}
+
+async function attachFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  if (S.busy) { say("system", "지금 처리 중입니다. 끝난 뒤 다시 첨부해 주세요."); return; }
+  const loaded = [];
+  for (const f of files) {
+    if (f.size > 8 * 1024 * 1024) { say("system", `${f.name} 은(는) 8MB를 넘어 건너뜁니다.`); continue; }
+    try { loaded.push({ name: f.name, text: decodeBytes(new Uint8Array(await f.arrayBuffer())) }); }
+    catch (e) { say("system", `파일을 읽지 못했습니다: ${f.name}`); }
   }
+  if (!loaded.length) return;
+  setStage("case");
+  $("attachInfo").textContent = "첨부: " + loaded.map((x) => x.name).join(", ");
+  const emls = loaded.filter((x) => /\.eml$/i.test(x.name));
+  const logs = loaded.filter((x) => !/\.eml$/i.test(x.name));
+  if (logs.length) {
+    await sendText(logs.map((x) => x.text).join("\n\n"), {
+      label: logs.map((x) => x.name).join(", ") + " 첨부",
+      attachment: logs.map((x) => `### ${x.name}\n${x.text}`).join("\n\n"), busy: "로그 판독 중…",
+    });
+  }
+  for (const eml of emls) await sendText(eml.text, { label: eml.name + " 첨부", attachment: eml.text, busy: "메일 원본 판독 중…" });
+}
+
+/* ---------------------------------------------------------------- 데모 */
+function demoAwareAt() {
+  // 데모는 '지금 15분 전에 알았다'로 시작한다 — 시나리오 원본의 고정 날짜로 돌리면 시연 날 기한이 이미 지나 있다.
+  const k = new Date(Date.now() + 9 * 3600e3 - 15 * 60e3);   // KST
+  const p = (n) => String(n).padStart(2, "0");
+  return `${k.getUTCFullYear()}-${p(k.getUTCMonth() + 1)}-${p(k.getUTCDate())} ${p(k.getUTCHours())}:${p(k.getUTCMinutes())}`;
+}
+
+async function startDemo() {
+  $("chat").innerHTML = "";
+  S.lawInFlight = false;
+  await newSession();
+  setStage("case");
 }
 
 async function replay() {
@@ -337,29 +329,24 @@ async function replay() {
   if (S.busy) return;
   const id = $("scenario").value;
   if (!id) return;
-  $("chat").innerHTML = "";
-  await newSession();
+  await startDemo();
   S.replaying = true; S.stopReplay = false;
   setBusy(true, "재생 준비 중…");
-  $("replay").disabled = false;
   try {
-    const data = await api(`/api/${S.sid}/replay/${id}`, { method: "POST", body: JSON.stringify({}) });
+    const data = await post(`/api/${S.sid}/replay/${id}`, { aware_at: demoAwareAt() });
     S.board = data.board; render(data.board);
-    say("system", `단계별 재생: ${$("scenario").selectedOptions[0].textContent} — 실제 사용자처럼 ${data.steps.length}번 입력합니다.`);
+    say("system", `단계별 재생 — ${$("scenario").selectedOptions[0].textContent} · 실제 사용자처럼 ${data.steps.length}번 입력합니다`);
     for (let i = 0; i < data.steps.length; i++) {
       if (S.stopReplay) { say("system", "재생을 멈췄습니다. 이어서 직접 입력할 수 있습니다."); break; }
       const st = data.steps[i];
-      await sleep(i ? 900 : 300);
-      say("user", st.label, st.files && st.files.length ? st.text : null);
-      $("typing").textContent = `단계 ${i + 1}/${data.steps.length} 처리 중…`;
-      const before = (S.board.severity || {}).level;
-      const res = await retryOnce(() => api(`/api/${S.sid}/message`, { method: "POST", body: JSON.stringify({ text: st.text }) }));
-      S.board = res.board; render(res.board);
-      if (res.board.reply) say("bot", res.board.reply);
-      const after = (res.board.severity || {}).level;
-      if (before && after && before !== after) flashSeverity(before, after, res.board.severity);
+      await sleep(i ? 700 : 250);
+      say("user", st.label, { attachment: st.files && st.files.length ? st.text : null });
+      $("typing").textContent = `단계 ${i + 1}/${data.steps.length} 판독 중…`;
+      const res = await post(`/api/${S.sid}/message`, { text: st.text, defer: true });
+      applyBoard(res.board, { reply: true });
+      await handlePending(res.board.pending, st.text);
     }
-    if (!S.stopReplay) say("system", "재생 완료 — [문서 초안 생성]으로 통지문·신고서를 만들 수 있습니다.");
+    if (!S.stopReplay) say("system", "재생 완료 — [문서] 탭에서 통지문·신고서 초안을 만들 수 있습니다.");
   } catch (e) {
     say("system", "오류: " + e.message);
   } finally {
@@ -368,23 +355,107 @@ async function replay() {
   }
 }
 
-function flashSeverity(before, after, sev) {
-  const div = say("system", `심각도 ${before} → ${after} ${sev.name || ""} — ${(sev.reasons || [])[0] || ""}`);
-  div.classList.add("sevchange", "sev-" + after);
-  const badge = $("sevBadge");
-  badge.classList.remove("pulse"); void badge.offsetWidth; badge.classList.add("pulse");
+async function runScenario() {
+  if (S.busy) return;
+  const id = $("scenario").value;
+  if (!id) return;
+  await startDemo();
+  setBusy(true, "시나리오 처리 중…");
+  let data;
+  try {
+    const t0 = performance.now();
+    data = await post(`/api/${S.sid}/scenario/${id}`, { defer: true, aware_at: demoAwareAt() });
+    applyBoard(data.board, { reply: true });
+    say("system", `규칙 엔진 처리 ${((performance.now() - t0) / 1000).toFixed(1)}초 · 탐지 ${(data.board.findings || []).length}건 · 문서 ${(data.board.docs || []).length}종`);
+  } catch (e) {
+    say("system", "오류: " + e.message);
+  } finally {
+    setBusy(false);
+  }
+  if (data) await handlePending(data.board.pending);
+}
+
+/* ---------------------------------------------------------------- 10대 유형 */
+function renderCategoryGrid() {
+  const active = ((S.board || {}).category || {}).id;
+  $("catChips").innerHTML = (S.cats || []).map((c) => `
+    <button class="cat-chip${active === c.id ? " active" : ""}" type="button" data-cat="${esc(c.id)}" title="${esc(c.deadline_focus || "")}">
+      <span class="top"><span class="n">${String(c.no).padStart(2, "0")}</span>${c.deep ? '<span class="deep">심화</span>' : ""}</span>
+      <span class="name">${esc(c.name)}</span>
+      <span class="base">기본 ${esc(c.base_severity || "")}</span>
+    </button>`).join("");
+  $("catChips").querySelectorAll("button[data-cat]").forEach((btn) => { btn.onclick = () => applyCategory(btn.dataset.cat); });
+}
+
+async function applyCategory(id) {
+  if (S.busy) return;
+  const cat = (S.cats || []).find((c) => c.id === id);
+  if (!cat) return;
+  if (cat.scenario && [...$("scenario").options].some((o) => o.value === cat.scenario)) $("scenario").value = cat.scenario;
+  setStage("case");
+  setBusy(true, `${cat.name} 접수 중…`);
+  let data;
+  try {
+    data = await withSession(() => post(`/api/${S.sid}/category/${id}`, { defer: true }));
+    applyBoard(data.board, { reply: true });
+  } catch (e) {
+    say("system", "유형을 적용하지 못했습니다: " + e.message);
+  } finally {
+    setBusy(false);
+  }
+  if (data) await handlePending(data.board.pending);
+}
+
+/* ---------------------------------------------------------------- 체크리스트 */
+async function toggleAction(key, done) {
+  const a = ((S.board || {}).actions || []).find((x) => x.key === key);
+  if (!a) return;
+  a.done = done; a.done_at = done ? "저장 중" : null;          // 먼저 화면에 반영
+  renderActions(S.board); renderProgress(S.board);
+  try {
+    const data = await post(`/api/${S.sid}/action`, { key, done });
+    S.board = data.board; renderActions(data.board); renderProgress(data.board);
+  } catch (e) {
+    a.done = !done; renderActions(S.board); renderProgress(S.board);
+    say("system", "체크를 저장하지 못했습니다: " + e.message);
+  }
+}
+
+/* ---------------------------------------------------------------- 문서 */
+async function fetchDoc(path) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: S.state || "" }) });
+  if (!res.ok) throw new Error(await res.text());
+  return res;
+}
+function filenameFrom(res, fallback) {
+  const cd = res.headers.get("Content-Disposition") || "";
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if (star) { try { return decodeURIComponent(star[1].trim()); } catch (e) { /* 아래로 */ } }
+  const plain = /filename="?([^";]+)"?/i.exec(cd);
+  return plain ? plain[1].trim() : fallback;
+}
+async function downloadFile(path, filename) {
+  try {
+    const res = await fetchDoc(path);
+    const blob = new Blob([await res.arrayBuffer()], { type: res.headers.get("Content-Type") || "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filenameFrom(res, filename); a.rel = "noopener";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 8000);
+  } catch (e) {
+    say("system", "다운로드 실패: " + e.message);
+  }
 }
 
 async function makeDocs() {
   if (S.busy) return;
-  await ensureSession();
   setBusy(true, "문서 초안 생성 중…");
   try {
-    const data = await api(`/api/${S.sid}/docs`, { method: "POST", body: JSON.stringify({}) });
-    S.board = data.board;
-    render(data.board);
-    say("bot", `문서 ${Object.keys(data.docs || {}).length}종을 만들었습니다. 발송은 사람이 합니다(초안까지만). 문서 탭에서 MD·DOCX·ZIP으로 내려받으세요.`);
-    setView("3", { remember: false });
+    const data = await withSession(() => post(`/api/${S.sid}/docs`, { defer: true }));
+    S.board = data.board; render(data.board);
+    say("bot", `문서 ${Object.keys(data.docs || {}).length}종을 만들었습니다. 체크리스트에 완료 표시한 조치가 '현재까지의 대응'에 시각과 함께 들어갑니다. 발송·제출은 사람이 합니다.`);
+    setView("3");
   } catch (e) {
     say("system", "오류: " + e.message);
   } finally {
@@ -392,202 +463,145 @@ async function makeDocs() {
   }
 }
 
-/* ---------------------------------------------------------------- 10대 유형 */
-function renderCategoryChips() {
-  const suggested = new Set(((S.board || {}).suggested_categories || []).map((x) => x.id));
-  const active = ((S.board || {}).category || {}).id;
-  $("catChips").innerHTML = (S.cats || []).map((c) => `
-    <button class="cat-chip${active === c.id ? " active" : ""}${suggested.has(c.id) ? " suggested" : ""}"
-      data-cat="${esc(c.id)}" title="${esc(c.name)} — ${esc(c.why_severity || "")}">
-      <span class="n">${c.no}</span>${esc(c.short || c.name)}${c.deep ? '<span class="deep">심화</span>' : ""}
-    </button>`).join("");
-  $("catChips").querySelectorAll("button[data-cat]").forEach((btn) => {
-    btn.onclick = () => applyCategory(btn.dataset.cat);
-  });
-}
-
-async function applyCategory(id) {
-  if (S.busy) return;
-  const cat = (S.cats || []).find((c) => c.id === id);
-  if (!cat) return;
-  await ensureSession();
-  const sel = $("scenario");
-  if (cat.scenario && [...sel.options].some((o) => o.value === cat.scenario)) sel.value = cat.scenario;
-  setBusy(true, `유형 ${cat.no}. ${cat.name} — 즉답 가이드 조회 중…`);
+async function previewDoc(id) {
   try {
-    const data = await retryOnce(() => api(`/api/${S.sid}/category/${id}`, { method: "POST", body: JSON.stringify({}) }));
-    S.board = data.board;
-    render(data.board);
-    if (data.board.reply) say("bot", data.board.reply);
-    if (cat.scenario) {
-      say("system", `이 유형은 데모 시나리오(${cat.scenario})가 있습니다. [▶ 단계별 재생]을 누르면 판정 과정을 처음부터 볼 수 있습니다.`);
-    }
+    const res = await fetchDoc(`/api/${S.sid}/download/${id}`);
+    const meta = (S.board.docs || []).find((d) => d.id === id);
+    $("modalTitle").textContent = meta ? meta.title : id;
+    $("modalTitle").dataset.doc = id;
+    $("modalBody").textContent = await res.text();
+    $("modal").classList.remove("hidden");
+    $("modalClose").focus();
   } catch (e) {
-    say("system", "유형을 적용하지 못했습니다: " + e.message);
-  } finally {
-    setBusy(false);
+    say("system", "문서를 열지 못했습니다: " + e.message);
   }
 }
 
-async function maybeAutoGuide() {
-  const cat = (S.board || {}).category;
-  if (!cat || (S.board || {}).guide) return;
-  try { await guide(); } catch (e) { /* 가이드는 부가 기능 — 실패해도 화면은 유지 */ }
-}
-
-function renderGuide(b) {
-  const cat = b.category;
-  const g = b.guide;
-  if (!cat) {
-    $("guide").innerHTML = `<div class="g-src">위에서 10대 사고 유형을 고르면 공통 초동조치·법정 기한과 유형별 즉답 가이드가 바로 나옵니다.</div>`;
-    $("guideBtn").disabled = true;
-    return;
-  }
-  $("guideBtn").disabled = false;
-  const head = `<div class="g-src">${cat.no}. ${esc(cat.name)} · <b>${esc(cat.base_severity)}</b> 기본 · 판단 ${esc(cat.level || "추정")}</div>`;
-  if (!g) {
-    $("guide").innerHTML = head + `<div class="g-src">${esc(cat.why_severity || "")} — [가이드 받기]를 누르면 Liner Quick Answer로 최신 안내를 받습니다.</div>`;
-    return;
-  }
-  const label = g.status === "live" ? "Liner Quick Answer" : "규칙 기반 안내";
-  const refs = (g.references || []).map((r) => `<a href="${esc(r.url)}" target="_blank" rel="noreferrer">${esc(r.title || r.hostname || r.url)}</a>`).join(" · ");
-  $("guide").innerHTML = head + `
-    <div class="g-answer${g.status === "live" ? "" : " g-offline"}">${esc(g.answer || "")}</div>
-    <div class="g-src">출처: ${label}${g.status === "error" ? " (호출 실패 — 규칙 기반 안내로 대체)" : ""}</div>
-    ${refs ? `<div class="g-src">${refs}</div>` : ""}`;
-}
-
-async function guide() {
-  if (S.busy) return;
-  await ensureSession();
-  setBusy(true, "즉답 가이드 조회 중… (Quick Answer)");
-  try {
-    const data = await api(`/api/${S.sid}/guide`, { method: "POST", body: JSON.stringify({ force: true }) });
-    S.board = data.board;
-    render(data.board);
-  } catch (e) {
-    say("system", "가이드를 받지 못했습니다: " + e.message);
-  } finally {
-    setBusy(false);
-  }
-}
-
-/* ---------------------------------------------------------------- 차트 */
-function renderViz(b) {
-  const v = b.viz || {};
-  const htmlStart = `<div class="g-src">${esc(v.query || "")}</div>`;
-  if (v.ok) {
-    $("vizInfo").innerHTML = `<div class="g-src">${esc(v.description || "사건 대응 차트가 준비되었습니다.")}</div>`;
-    $("vizBtn").textContent = "차트 다시 보기";
-    return;
-  }
-  const reason = v.reason || (v.available ? "아직 차트를 만들지 않았습니다." : "Liner 키가 없어 차트 대신 요약 카드로 표시합니다.");
-  $("vizInfo").innerHTML = htmlStart + `<div class="g-src">${esc(reason)}</div>` + vizFallback(b);
-  $("vizBtn").textContent = "차트로 보기";
-}
-
-function vizFallback(b) {
-  // 오프라인·실패 시 깨지지 않는 폴백: 지금 할 일을 시간 구간별로 접어 보여 준다.
-  const buckets = { "0~10분": 0, "15분": 0, "조사": 0, "지금": 0 };
-  (b.actions || []).forEach((a) => { if (buckets[a.kind] !== undefined) buckets[a.kind] += 1; });
-  const cells = Object.entries(buckets).map(([k, n]) =>
-    `<span class="cat-chip" style="cursor:default"><span class="n">${n}</span>${esc(k)}</span>`).join("");
-  const due = (b.deadlines || {}).next_due;
-  return `<div class="cat-chips" style="flex-wrap:wrap;margin-top:6px">${cells}</div>` +
-    (due ? `<div class="g-src" style="margin-top:6px">다음 기한: ${esc(due.title)} → ${esc(due.due)} (${esc(due.remaining || "")})</div>` : "");
+/* ---------------------------------------------------------------- 가이드 · 차트 */
+async function refreshGuide() {
+  if (S.busy || !(S.board || {}).category) return;
+  if (!S.liner) { say("system", "Liner 키가 없어 규칙 기반 안내만 표시합니다."); return; }
+  await runEnrich(["guide"]);
 }
 
 async function showViz() {
   if (S.busy) return;
-  await ensureSession();
   if (S.viz) { openViz(); return; }
   $("vizBtn").textContent = "차트 생성 중…";
-  setBusy(true, "차트 생성 중… (Visualization, 약 10초)");
+  setBusy(true, "Liner Visualization이 차트를 그리는 중… (20~30초)");
+  linerJob(+1);
   try {
-    const data = await api(`/api/${S.sid}/viz`, { method: "POST", body: JSON.stringify({}) });
+    const data = await withSession(() => post(`/api/${S.sid}/viz`, {}));
     S.board = data.board || S.board;
-    if (data.html) {
-      S.viz = data.html;
-      render(S.board);
-      openViz();
-    } else {
-      render(S.board);
-      say("system", "차트를 만들지 못했습니다 — " + ((data.viz || {}).reason || "요약 카드로 대체합니다."));
-    }
+    render(S.board);
+    if (data.html) { S.viz = data.html; openViz(); }
+    else say("system", "차트를 만들지 못했습니다 — " + ((data.viz || {}).reason || "요약 카드로 대체합니다."));
   } catch (e) {
-    say("system", "차트 요청 실패: " + e.message +
-      " — 서버가 식어 있으면 첫 요청이 오래 걸릴 수 있습니다. 잠시 뒤 [차트로 보기]를 한 번 더 눌러 주세요.");
+    say("system", "차트 요청 실패: " + e.message);
   } finally {
+    linerJob(-1);
     setBusy(false);
+    $("vizBtn").textContent = S.viz ? "차트 다시 보기" : "차트로 보기";
   }
 }
+/* 차트는 Liner가 만든 외부 HTML이다. 기본은 격리(sandbox="allow-scripts", 고유 출처 없음)로 띄워
+   이 화면의 상태 토큰·세션 저장소에 닿지 못하게 한다. 격리 상태에서 흔히 깨지는 저장소·쿠키 접근은
+   메모리 대체물로 바꾸고, 그려졌는지 여부를 부모에게 알려 준다. 실패할 때만 사용자가 직접 격리를 해제한다. */
+const VIZ_SHIM = `<script>(function(){
+function M(){var d={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}
+["localStorage","sessionStorage"].forEach(function(n){try{window[n].getItem("_")}catch(e){try{Object.defineProperty(window,n,{value:M(),configurable:true})}catch(_){}}});
+try{document.cookie}catch(e){try{Object.defineProperty(document,"cookie",{get:function(){return""},set:function(){},configurable:true})}catch(_){}}
+var errs=[];window.addEventListener("error",function(ev){errs.push(String(ev.message||"error").slice(0,120))});
+window.addEventListener("load",function(){setTimeout(function(){var b=document.body;
+parent.postMessage({type:"secuaid-viz",errors:errs.slice(0,3),text:b?b.innerText.trim().length:0,
+nodes:b?b.querySelectorAll("svg,canvas,table,img").length:0},"*")},1500)});
+})();<\/script>`;
+
+function vizDoc(html) {
+  const m = /<head[^>]*>/i.exec(html);
+  return m ? html.slice(0, m.index + m[0].length) + VIZ_SHIM + html.slice(m.index + m[0].length) : VIZ_SHIM + html;
+}
+
+function setVizIsolation(isolated) {
+  $("vizFrame").setAttribute("sandbox", isolated ? "allow-scripts" : "allow-scripts allow-same-origin");
+  $("vizWarn").classList.add("hidden");
+  $("vizUnsafe").classList.add("hidden");
+}
+
+window.addEventListener("message", (e) => {
+  if (e.source !== $("vizFrame").contentWindow || !e.data || e.data.type !== "secuaid-viz") return;
+  const broken = (e.data.errors || []).length > 0 || (!e.data.text && !e.data.nodes);
+  if (broken && $("vizFrame").getAttribute("sandbox") === "allow-scripts") {
+    $("vizWarn").textContent = "격리 상태에서 차트가 제대로 그려지지 않았습니다" + ((e.data.errors || [])[0] ? ` (${e.data.errors[0]})` : "");
+    $("vizWarn").classList.remove("hidden");
+    $("vizUnsafe").classList.remove("hidden");
+  }
+});
 
 function openViz() {
   if (!S.viz) return;
-  $("vizFrame").srcdoc = S.viz;
-  const v = (S.board || {}).viz || {};
-  $("vizTheme").textContent = v.theme || "chart";
+  setVizIsolation(true);
+  $("vizFrame").srcdoc = vizDoc(S.viz);
+  $("vizTheme").textContent = ((S.board || {}).viz || {}).theme || "Liner Visualization";
   $("vizTitle").textContent = "사건 보드 차트 — " + (((S.board || {}).category || {}).name || "대응 타임라인");
   $("vizModal").classList.remove("hidden");
 }
 
-/* ---------------------------------------------------------------- 보드 */
+/* ---------------------------------------------------------------- 렌더링 */
 function render(b) {
   if (!b) return;
   const c = b.case || {};
   $("caseTitle").textContent = c.title || "사건";
-  $("caseMeta").textContent = `${c.id || ""} · 인지 ${c.aware_at || "미확인"} · 로그 ${(b.log_kinds || []).join(", ") || "없음"}`;
+  $("caseMeta").textContent = `${c.id || ""} · 인지 ${c.aware_at || "미확인"} · 로그 ${(b.log_kinds || []).length ? (b.log_kinds || []).length + "종" : "없음"}`;
 
   const sev = b.severity || {};
-  const badge = $("sevBadge");
-  badge.textContent = `${sev.level || "—"} ${sev.name || ""} ${sev.evidence_level ? "(" + sev.evidence_level + ")" : ""}`;
-  badge.className = "sev " + (sev.level ? "sev-" + sev.level : "sev-none");
-
-  const mode = (b.api || {}).mode === "liner" ? "Liner 연동" : "규칙 기반";
-  $("modePill").textContent = mode;
-  $("modePill").className = "pill" + ((b.api || {}).mode === "liner" ? " live" : "");
-  const calls = ((b.api || {}).calls || []).map((x) => `${x.api}:${x.ok ? "ok" : "fail"}/${x.ms}ms`).join(" · ");
-  if (calls) $("apiInfo").textContent = calls;
-
+  $("sevBadge").textContent = sev.level ? `${sev.level} ${sev.name || ""}${sev.evidence_level ? " · " + sev.evidence_level : ""}` : "—";
+  $("sevBadge").className = "sev case-only " + (sev.level ? "sev-" + sev.level : "sev-none");
   const hist = b.severity_history || [];
   $("sevTrail").innerHTML = hist.length > 1
-    ? hist.map((h) => `<span class="trail sev-${esc(h.level)}" title="${esc(h.at + " · " + h.reason)}">${esc(h.level)}</span>`).join('<span class="arrow">→</span>')
+    ? hist.slice(0, -1).map((h) => `<span class="trail" title="${esc(h.at + " · " + h.reason)}">${esc(h.level)}</span>`).join('<span class="arrow">→</span>') + '<span class="arrow">→</span>'
     : "";
 
-  renderCategoryChips();
-  renderGuide(b);
+  renderMode();
+  renderCategoryGrid();
   renderActions(b);
+  renderProgress(b);
   renderDeadlines(b);
   renderTimeline(b);
   renderVerdict(b);
   renderFacts(b);
   renderDocs(b);
   renderSources(b);
+  renderGuide(b);
   renderViz(b);
+  renderLawBadge();
+  $("dontdo").innerHTML = (b.dont_do || []).map((d) => `<li>${esc(d)}</li>`).join("") || "<li>사건이 시작되면 금기 행동이 표시됩니다</li>";
 
-  $("dontdo").innerHTML = (b.dont_do || []).map((d) => `<li>${esc(d)}</li>`).join("");
+  const nOpen = (b.actions || []).filter((a) => !a.done).length;
+  setBadge("badgeTab1", nOpen); setBadge("mBadge1", nOpen);
+  setBadge("badgeTab2", (b.findings || []).length);
+  setBadge("badgeTab3", (b.docs || []).length); setBadge("mBadge3", (b.docs || []).length);
+  setBadge("badgeTab4", (b.sources || []).length);
+  $("phaseLabel").textContent = b.phase ? `${b.phase.window || ""}${b.phase.elapsed_minutes != null ? " · 인지 후 " + elapsed(b.phase.elapsed_minutes) : ""}` : "";
+  tick();
+}
 
-  // 탭 배지 — 한눈에 남은 일·근거·문서 수를 보여 준다
-  const nActions = (b.actions || []).length;
-  const nDue = ((b.deadlines || {}).items || []).filter((x) => x.status === "해당").length;
-  const nFindings = (b.findings || []).length;
-  const nDocs = (b.docs || []).length;
-  const nSources = (b.sources || []).length;
-  setBadge("badgeTab1", nActions, `지금 할 일 ${nActions}개 · 해당 기한 ${nDue}개`);
-  setBadge("badgeTab2", nFindings, `탐지 ${nFindings}건 · 근거 ${nSources}건`);
-  setBadge("badgeTab3", nDocs, `문서 ${nDocs}종`);
-  setBadge("mBadge1", nActions, `지금 할 일 ${nActions}개 · 해당 기한 ${nDue}개`);
-  setBadge("mBadge2", nFindings, `탐지 ${nFindings}건`);
-  setBadge("mBadge3", nDocs, `문서 ${nDocs}종`);
-  $("phaseLabel").textContent = b.phase ? `${b.phase.window || ""} ${b.phase.elapsed_minutes != null ? "· 인지 후 " + elapsed(b.phase.elapsed_minutes) : ""}` : "";
+function setBadge(id, n) {
+  const el = $(id);
+  el.textContent = String(n);
+  el.classList.toggle("hot", id.endsWith("1") && Number(n) > 0);
+}
 
-  const warn = document.createElement("div");
-  warn.className = "msg system";
-  if (b.missing && b.missing.length && !document.querySelector(".nextq")) {
-    warn.classList.add("nextq");
-    warn.textContent = "확인 필요: " + b.missing[0];
-    $("chat").appendChild(warn);
-  }
+function renderMode(liner) {
+  const b = S.board || {};
+  const live = S.liner || (b.api || {}).mode === "liner";
+  const pill = $("modePill");
+  pill.className = "pill" + (S.linerJobs ? " busy" : live ? " live" : "");
+  const last = ((b.api || {}).calls || []).slice(-1)[0];
+  if (S.linerJobs) $("modeText").textContent = `Liner 호출 중 · ${S.linerJobs}건`;
+  else if (live) $("modeText").textContent = "Liner 연동" + (last ? ` · 최근 ${(last.ms / 1000).toFixed(1)}초` : liner && liner.latency_ms ? ` · ${liner.latency_ms}ms` : "");
+  else $("modeText").textContent = "규칙 기반(키 없음)";
+  pill.title = live ? "Liner API 연동 — 판정·기한은 규칙 엔진, 문장·근거는 Liner" : "LINER_API_KEY 미설정 — 판정·기한·문서는 규칙 엔진으로 동작";
 }
 
 function elapsed(min) {
@@ -598,172 +612,271 @@ function elapsed(min) {
 
 function renderActions(b) {
   const items = b.actions || [];
-  $("actions").innerHTML = items.length
-    ? items.map((a, i) => `<li>
-        <span class="num">${i + 1}</span>
-        <span>${esc(a.action)}${a.kind ? `<span class="tag">${esc(a.kind)}</span>` : ""}</span>
-        <span class="who">${esc(a.who)}<br><span class="ref">플레이북 ${esc(a.ref)}</span></span>
-      </li>`).join("")
-    : `<li><span class="num">·</span><span>사건을 시작하면 지금 할 일이 나옵니다.</span><span></span></li>`;
+  if (!items.length) { $("actions").innerHTML = `<div class="empty">사건을 시작하면 우선순위대로 할 일이 나옵니다.</div>`; return; }
+  const groups = [];
+  items.forEach((a) => {
+    const k = a.kind || "지금";
+    let g = groups.find((x) => x.k === k);
+    if (!g) { g = { k, items: [] }; groups.push(g); }
+    g.items.push(a);
+  });
+  const label = { "0~10분": "0~10분 · 돈과 계정부터", "15분": "15분 안에 · 확산 막기", "조사": "조사 · 범위 확인", "지금": "지금" };
+  $("actions").innerHTML = groups.map((g) => `
+    <div class="group-head"><b class="${g.k === "0~10분" || g.k === "지금" ? "urgent" : ""}">${esc(label[g.k] || g.k)}</b>
+      <span>${g.items.filter((a) => a.done).length} / ${g.items.length}</span></div>
+    ${g.items.map((a) => `
+      <label class="act${a.done ? " done" : ""}">
+        <input type="checkbox" data-key="${esc(a.key)}" ${a.done ? "checked" : ""} />
+        <span class="body">
+          <span class="text">${esc(a.action)}</span>
+          <span class="meta">${esc(a.who)} · 플레이북 ${esc(a.ref)}${a.done && a.done_at ? ` · <b>완료 ${esc(a.done_at)}</b>` : ""}</span>
+        </span>
+        <span class="win">${esc(a.kind || "")}</span>
+      </label>`).join("")}`).join("");
+  $("actions").querySelectorAll("input[data-key]").forEach((cb) => {
+    cb.onchange = () => toggleAction(cb.dataset.key, cb.checked);
+  });
+}
+
+function renderProgress(b) {
+  const items = b.actions || [];
+  const done = items.filter((a) => a.done).length;
+  $("progressText").textContent = `${done} / ${items.length} 완료`;
+  $("progressBar").style.width = items.length ? `${Math.round((done / items.length) * 100)}%` : "0";
+  const nDocs = (b.docs || []).length;
+  $("docsCount").textContent = nDocs ? `${nDocs}종 준비` : "아직 없음";
 }
 
 function renderDeadlines(b) {
   const d = b.deadlines || {};
   const items = d.items || [];
-  $("deadlines").innerHTML = items.map((x) => {
-    const cls = x.status === "해당" ? "due" : "";
-    const chipCls = (x.status || "").replace(/[()\s]/g, "");
-    return `<div class="ddl ${cls}">
-      <div class="ddl-top">
-        <span class="ddl-title">${esc(x.title)}</span>
-        <span class="chip ${chipCls}">${esc(x.status)}</span>
-      </div>
-      <div class="ddl-meta">${esc(x.to)} · 마감 ${esc(x.due || "미확인")} ${x.remaining ? "· " + esc(x.remaining) : ""}</div>
-      <div class="ddl-why">${esc(x.why)}</div>
-      ${x.legal_ref ? `<div class="ddl-meta">근거 ${esc(x.legal_ref)}</div>` : ""}
-    </div>`;
-  }).join("") || `<div class="hint">인지 시각과 사실관계가 들어오면 기한이 계산됩니다.</div>`;
-
+  let html = items.map((x) => `
+    <div class="ddl">
+      <div class="ddl-top"><span class="ddl-title">${esc(x.title)}</span><span class="chip ${esc((x.status || "").replace(/[()\s]/g, ""))}">${esc(x.status)}</span></div>
+      <span class="ddl-due" ${x.due_iso && (x.status === "해당" || x.status === "검토") ? `data-due="${esc(x.due_iso)}"` : ""}>${esc(x.due || "마감 미확인")}${x.remaining ? " · " + esc(x.remaining) : ""}</span>
+      <span class="ddl-meta">${esc(x.to)}${x.legal_ref ? " · " + esc(x.legal_ref) : ""}</span>
+      <span class="ddl-why">${esc(x.why)}</span>
+    </div>`).join("") || `<div class="empty">인지 시각과 사실관계가 들어오면 기한이 계산됩니다.</div>`;
   const ops = (d.operational || []).filter((o) => o.triggered);
-  if (ops.length) {
-    $("deadlines").insertAdjacentHTML("beforeend",
-      `<div class="ddl"><div class="ddl-top"><span class="ddl-title">운영상 연락(법정 신고 아님)</span><span class="chip 검토">즉시</span></div>` +
-      ops.map((o) => `<div class="ddl-why">· ${esc(o.title)} — ${esc(o.how)}</div>`).join("") + `</div>`);
-  }
+  if (ops.length) html += `<div class="ops"><b>운영상 연락 · 법정 신고 아님</b>${ops.map((o) => `<span>· ${esc(o.title)} — ${esc(o.how)}</span>`).join("")}</div>`;
+  $("deadlines").innerHTML = html;
+}
+
+function renderLawBadge() {
+  const law = ((S.board || {}).law_checks || [])[0];
+  let t = S.liner ? "규칙 엔진 계산" : "규칙 엔진 계산(키 없음)";
+  if (S.lawInFlight) t = "Liner 법령 재확인 중…";
+  else if (law && law.status === "live") t = (law.drift || []).length ? `Liner 근거 · 차이 ${law.drift.length}건` : "Liner 근거 재확인 · 차이 없음";
+  else if (law && law.status === "error") t = "Liner 재확인 실패 · 규칙 기준";
+  $("lawBadge").textContent = t;
+  $("lawStatus").textContent = law ? (law.status === "live" ? "Search Agent · Search" : "규칙 기반") : "";
 }
 
 function renderTimeline(b) {
-  const rows = (b.findings || []).slice(0, 40);
+  const rows = (b.findings || []).slice(0, 60);
   $("timeline").innerHTML = rows.map((f) => `<div class="tl ${f.severity === "critical" ? "crit" : f.severity === "high" ? "high" : ""}">
       <div><div class="t">${f.ts ? esc(f.ts_kst) : "시각 미상"}</div><div class="u">${f.ts ? esc(f.ts.replace("T", " ").slice(0, 16)) + "Z" : "메일 원본 판독"}</div></div>
-      <div><span class="r">${esc(f.rule_id)}</span> ${esc(f.summary)}</div>
-    </div>`).join("") || `<div class="hint">로그를 붙여넣으면 시간순 사건이 여기에 쌓입니다.</div>`;
+      <div><span class="r">${esc(f.rule_id)}</span>${esc(f.summary)}</div>
+    </div>`).join("") || `<div class="empty">로그를 붙여넣으면 시간순 사건이 여기에 쌓입니다.</div>`;
 }
 
 function renderVerdict(b) {
   const c = b.classification || {};
   const sev = b.severity || {};
   const cat = b.category;
-  const basis = (c.basis || []).map((x) => `<div class="basis">· ${esc(x)}</div>`).join("");
-  const missing = (c.missing || []).length ? `<div class="basis">모르는 것: ${esc((c.missing || []).join(", "))}</div>` : "";
+  $("verdictLevel").textContent = c.level || "미확인";
+  $("verdictLevel").className = "lv " + (c.level || "미확인");
   $("verdict").innerHTML = `
-    <div class="line"><span class="big">${esc(c.label || "판별 전")}</span> <span class="badge ${esc(c.level || "미확인")}">${esc(c.level || "미확인")}</span></div>
-    ${cat ? `<div class="ddl-meta">10대 유형 ${cat.no}. ${esc(cat.name)}</div>` : ""}
-    ${basis}${missing}
-    <div class="line" style="margin-top:8px">심각도 <b>${esc(sev.level || "-")}</b> ${esc(sev.name || "")} — ${esc((sev.reasons || [])[0] || "")}</div>
-    <div class="ddl-meta">보고 주기 ${esc(sev.next_report || "-")}</div>`;
+    <span class="big">${esc(c.label || "판별 전")}</span>
+    ${cat ? `<span class="meta">10대 유형 ${cat.no}. ${esc(cat.name)}</span>` : ""}
+    ${(c.basis || []).length ? `<ul>${c.basis.slice(0, 5).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${(c.missing || []).length ? `<span class="meta">모르는 것 · ${esc(c.missing.join(", "))}</span>` : ""}
+    <span class="sevline">심각도 <b>${esc(sev.level || "-")} ${esc(sev.name || "")}</b> — ${esc((sev.reasons || [])[0] || "")}</span>
+    <span class="meta">경영진 보고 주기 ${esc(sev.next_report || "-")}</span>`;
 }
 
 function renderFacts(b) {
-  const facts = b.facts || [];
-  $("facts").innerHTML = facts.map((f) => `<div class="fact">
+  $("facts").innerHTML = (b.facts || []).map((f) => `<div class="fact">
       <span class="k">${esc(f.label)}</span>
       <span class="v">${esc(typeof f.value === "object" ? JSON.stringify(f.value) : f.value)}</span>
-      <span class="badge ${esc(f.level)}">${esc(f.level)}</span>
-    </div>`).join("") || `<div class="hint">아직 기록된 사실이 없습니다.</div>`;
+      <span class="badge ${esc(f.level)}" title="${esc(f.source || "")}">${esc(f.level)}</span>
+    </div>`).join("") || `<div class="empty">아직 기록된 사실이 없습니다.</div>`;
 }
 
 function renderDocs(b) {
   const docs = b.docs || [];
   $("docs").innerHTML = docs.map((d) => `<div class="doc">
-      <div class="doc-title">${esc(d.title)}</div>
-      <div class="doc-tools">
-        <button data-doc="${esc(d.id)}">미리보기</button>
-        <button data-md="${esc(d.id)}">MD</button>
-        <button data-docx="${esc(d.id)}">DOCX</button>
-      </div>
-    </div>`).join("") || `<div class="hint">[문서 초안 생성]을 누르면 통지문·신고서가 만들어지고, MD·DOCX·ZIP으로 내려받을 수 있습니다.</div>`;
+      <span class="doc-title">${esc(d.title)}<span class="doc-kind">${d.kind === "report" ? "신고·보고" : "통지"}</span></span>
+      <span class="doc-tools">
+        <button type="button" data-doc="${esc(d.id)}">미리보기</button>
+        <button type="button" data-md="${esc(d.id)}">MD</button>
+        <button type="button" data-docx="${esc(d.id)}">DOCX</button>
+      </span>
+    </div>`).join("") || `<div class="empty">[문서 초안 생성]을 누르면 통지문·신고서가 만들어집니다. 모르는 칸은 〔미확인〕으로 남깁니다.</div>`;
   $("zipAll").classList.toggle("hidden", !docs.length);
-  $("docs").querySelectorAll("button[data-doc]").forEach((btn) => {
-    btn.onclick = () => previewDoc(btn.dataset.doc);
-  });
-  $("docs").querySelectorAll("button[data-md]").forEach((btn) => {
-    btn.onclick = () => downloadFile(`/api/${S.sid}/download/${btn.dataset.md}`, `${btn.dataset.md}.md`);
-  });
-  $("docs").querySelectorAll("button[data-docx]").forEach((btn) => {
-    btn.onclick = () => downloadFile(`/api/${S.sid}/download/${btn.dataset.docx}.docx`, `${btn.dataset.docx}.docx`);
-  });
-}
-
-async function previewDoc(id) {
-  try {
-    const res = await fetchDoc(`/api/${S.sid}/download/${id}`);
-    const text = await res.text();
-    const meta = (S.board.docs || []).find((d) => d.id === id);
-    $("modalTitle").textContent = meta ? meta.title : id;
-    $("modalTitle").dataset.doc = id;
-    $("modalBody").textContent = text;
-    $("modal").classList.remove("hidden");
-  } catch (e) {
-    say("system", "문서를 열지 못했습니다: " + e.message);
-  }
+  $("docs").querySelectorAll("button[data-doc]").forEach((x) => { x.onclick = () => previewDoc(x.dataset.doc); });
+  $("docs").querySelectorAll("button[data-md]").forEach((x) => { x.onclick = () => downloadFile(`/api/${S.sid}/download/${x.dataset.md}`, `${x.dataset.md}.md`); });
+  $("docs").querySelectorAll("button[data-docx]").forEach((x) => { x.onclick = () => downloadFile(`/api/${S.sid}/download/${x.dataset.docx}.docx`, `${x.dataset.docx}.docx`); });
 }
 
 function renderSources(b) {
-  const src = b.sources || [];
   const law = (b.law_checks || [])[0];
   let html = "";
-  if (law) {
-    html += `<div class="source"><b>법령 재확인</b> — ${esc(law.status)}${law.drift && law.drift.length ? " · 차이: " + esc(law.drift.join(" / ")) : " · 코드 규칙과 일치 확인"}</div>`;
+  if (law && law.status === "live") {
+    html += `<div class="source law"><b>법령 재확인</b> — ${(law.drift || []).length ? "코드 규칙과 차이: " + esc(law.drift.join(" / ")) : "코드 규칙(24h·72h)과 차이 없음"}</div>`;
   }
-  html += src.slice(0, 12).map((s) => `<div class="source">
+  html += (b.sources || []).slice(0, 20).map((s) => `<div class="source">
       <a href="${esc(s.url)}" target="_blank" rel="noreferrer">${esc(s.title || s.url)}</a>
-      <div class="host">${esc(s.hostname || "")} ${s.date ? "· " + esc(s.date) : ""}</div>
+      <div class="host">${esc(s.hostname || "")}${s.date ? " · " + esc(s.date) : ""}</div>
     </div>`).join("");
-  $("sources").innerHTML = html || `<div class="hint">Liner 검색 근거가 여기에 표시됩니다.</div>`;
+  $("sources").innerHTML = html || `<div class="empty">Liner 검색 근거가 여기에 표시됩니다.</div>`;
 }
 
-document.querySelectorAll(".b-tab").forEach((b) => {
-  b.onclick = () => setBoardTab(b.dataset.tab);
+function renderGuide(b) {
+  const cat = b.category;
+  const g = b.guide;
+  $("guideBtn").disabled = !cat || !S.liner;
+  if (!cat) { $("guide").innerHTML = `<span class="g-src">첫 화면에서 사고 유형을 고르면 유형별 즉답 가이드가 나옵니다.</span>`; return; }
+  const head = `<span class="g-src">${cat.no}. ${esc(cat.name)} · 기본 ${esc(cat.base_severity)} · ${esc(cat.deadline_focus || "")}</span>`;
+  if (!g) { $("guide").innerHTML = head; return; }
+  const refs = (g.references || []).map((r) => `<a href="${esc(r.url)}" target="_blank" rel="noreferrer">${esc(r.title || r.hostname || r.url)}</a>`).join(" · ");
+  $("guide").innerHTML = head + `<div class="g-answer">${esc(g.answer || "")}</div>
+    <span class="g-src">출처: ${g.status === "live" ? "Liner Quick Answer" : "규칙 기반 안내"}${g.status === "error" ? " (호출 실패 — 규칙 기반 안내로 대체)" : ""}</span>
+    ${refs ? `<span class="g-src">${refs}</span>` : ""}`;
+}
+
+function renderViz(b) {
+  const v = b.viz || {};
+  if (v.ok) { $("vizInfo").textContent = v.description || "사건 대응 차트가 준비되었습니다."; return; }
+  const due = (b.deadlines || {}).next_due;
+  $("vizInfo").textContent = (v.reason || (S.liner ? "Liner Visualization API로 이 사건의 0~72시간 대응을 한 장으로 그립니다." : "Liner 키가 없어 차트 대신 72시간 시계를 사용하세요.")) +
+    (due ? ` 다음 기한: ${due.title} → ${due.due}` : "");
+}
+
+function flashSeverity(before, after, sev) {
+  const div = say("system", `심각도 ${before} → ${after} ${sev.name || ""} — ${(sev.reasons || [])[0] || ""}`);
+  div.className = "msg sevchange";
+  const badge = $("sevBadge");
+  badge.classList.remove("pulse"); void badge.offsetWidth; badge.classList.add("pulse");
+}
+
+/* ---------------------------------------------------------------- 72시간 시계 */
+const SEG_HOURS = [0, 1 / 6, 1, 4, 24, 72];
+const SEG_PCT = [0, 8, 18, 32, 58, 100];
+function trackPct(h) {
+  if (h <= 0) return 0;
+  for (let i = 1; i < SEG_HOURS.length; i++) {
+    if (h <= SEG_HOURS[i]) return SEG_PCT[i - 1] + ((h - SEG_HOURS[i - 1]) / (SEG_HOURS[i] - SEG_HOURS[i - 1])) * (SEG_PCT[i] - SEG_PCT[i - 1]);
+  }
+  return 100;
+}
+function hms(ms) {
+  const t = Math.floor(Math.abs(ms) / 1000);
+  const d = Math.floor(t / 86400), h = Math.floor((t % 86400) / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  return (d ? `${d}일 ` : "") + `${p(h)}:${p(m)}:${p(s)}`;
+}
+function tick() {
+  const b = S.board;
+  if (!b) return;
+  const now = Date.now();
+  const aware = (b.case || {}).aware_iso ? Date.parse(b.case.aware_iso) : null;
+  const items = ((b.deadlines || {}).items || []).filter((x) => x.due_iso && (x.status === "해당" || x.status === "검토"));
+  const upcoming = items.map((x) => ({ ...x, t: Date.parse(x.due_iso) })).sort((a, c) => a.t - c.t);
+  const overdue = upcoming.filter((x) => x.t <= now && x.status === "해당");
+  const next = overdue.length ? overdue[overdue.length - 1] : upcoming.find((x) => x.t > now) || upcoming[upcoming.length - 1];
+  const time = $("clockTime");
+  if (next) {
+    const diff = next.t - now;
+    const review = next.status === "검토";
+    $("clockLabel").textContent = `${diff < 0 ? "기한 경과 · " : review ? "해당 여부 검토 중인 기한 · " : "다음 법정 기한 · "}${next.title}`;
+    time.textContent = (diff < 0 ? "+" : "") + hms(diff);
+    time.className = "clock-time" + (diff < 0 && !review ? " over" : review || diff > 48 * 3600e3 ? " calm" : "");
+    $("clockDue").textContent = `마감 ${next.due} · ${next.to}${next.status === "검토" ? " · 해당 여부 검토" : ""}`;
+  } else {
+    const anyNo = ((b.deadlines || {}).items || []).some((x) => x.status === "비해당");
+    $("clockLabel").textContent = "다음 법정 기한";
+    time.textContent = "--:--:--";
+    time.className = "clock-time calm";
+    $("clockDue").textContent = !aware ? "인지 시각을 알려 주면 기한이 계산됩니다"
+      : anyNo ? "현재 사실로는 신고 대상이 아닙니다(판단은 담당자)" : "사실관계가 더 필요합니다 — 판단 보류";
+  }
+  document.querySelectorAll("#deadlines [data-due]").forEach((el) => {
+    const t = Date.parse(el.dataset.due);
+    el.classList.toggle("over", t < now);
+  });
+  const segs = document.querySelectorAll("#track .seg");
+  const labels = document.querySelectorAll("#trackLabels span");
+  if (aware) {
+    const h = (now - aware) / 3600e3;
+    $("nowMarker").style.left = `calc(${trackPct(h)}% - 1px)`;
+    $("nowMarker").hidden = false;
+    segs.forEach((s, i) => {
+      s.classList.toggle("past", h >= SEG_HOURS[i + 1]);
+      s.classList.toggle("current", h >= SEG_HOURS[i] && h < SEG_HOURS[i + 1]);
+    });
+    labels.forEach((s, i) => s.classList.toggle("current", h >= SEG_HOURS[i] && h < SEG_HOURS[i + 1]));
+  } else {
+    $("nowMarker").hidden = true;
+    segs.forEach((s) => s.classList.remove("past", "current"));
+    labels.forEach((s) => s.classList.remove("current"));
+  }
+}
+
+/* ---------------------------------------------------------------- 이벤트 */
+document.querySelectorAll(".b-tab").forEach((b) => { b.onclick = () => setView(b.dataset.tab); });
+document.querySelectorAll(".m-tab").forEach((b) => { b.onclick = () => setView(b.dataset.tab); });
+$("fileInput").addEventListener("change", (e) => { attachFiles(e.target.files); e.target.value = ""; });
+$("quickChips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".quick");
+  if (!chip || S.busy) return;
+  $("input").value = chip.dataset.q || "";
+  $("input").focus();
 });
-document.querySelectorAll(".m-tab").forEach((b) => {
-  b.onclick = () => setView(b.dataset.tab === "chat" ? "chat" : b.dataset.tab);
-});
-$("fileInput").addEventListener("change", (e) => {
-  const files = e.target.files;
-  attachFiles(files);
-  e.target.value = "";
-});
-bindQuickChips();
 $("send").onclick = send;
-$("input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+$("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); });
+$("startForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = $("startInput").value.trim();
+  if (!text) { $("startInput").focus(); return; }
+  $("startInput").value = "";
+  sendText(text);
 });
+$("startInput").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("startForm").requestSubmit(); });
 $("runScenario").onclick = runScenario;
 $("replay").onclick = replay;
-$("guideBtn").onclick = guide;
+$("stopReplay").onclick = () => { S.stopReplay = true; };
+$("guideBtn").onclick = refreshGuide;
 $("vizBtn").onclick = showViz;
+$("makeDocs").onclick = makeDocs;
+$("zipAll").onclick = () => downloadFile(`/api/${S.sid}/download/zip`, "SecuAid_documents.zip");
+$("modalDownload").onclick = () => { const id = $("modalTitle").dataset.doc; if (id) downloadFile(`/api/${S.sid}/download/${id}`, `${id}.md`); };
+$("modalDocx").onclick = () => { const id = $("modalTitle").dataset.doc; if (id) downloadFile(`/api/${S.sid}/download/${id}.docx`, `${id}.docx`); };
 $("modalCopy").onclick = async () => {
   try { await navigator.clipboard.writeText($("modalBody").textContent); $("modalCopy").textContent = "복사됨"; }
-  catch { $("modalCopy").textContent = "복사 실패"; }
+  catch (e) { $("modalCopy").textContent = "복사 실패"; }
   setTimeout(() => ($("modalCopy").textContent = "복사"), 1200);
 };
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    $("modal").classList.add("hidden");
-    $("vizModal").classList.add("hidden");
-  }
-});
-$("modal").addEventListener("click", (e) => { if (e.target.id === "modal") $("modal").classList.add("hidden"); });
-$("vizModal").addEventListener("click", (e) => { if (e.target.id === "vizModal") $("vizModal").classList.add("hidden"); });
-$("modalDownload").onclick = () => {
-  const id = $("modalTitle").dataset.doc;
-  if (id) downloadFile(`/api/${S.sid}/download/${id}`, `${id}.md`);
+const closeModals = () => { $("modal").classList.add("hidden"); $("vizModal").classList.add("hidden"); };
+$("modalClose").onclick = closeModals;
+$("vizClose").onclick = closeModals;
+$("vizUnsafe").onclick = () => {
+  if (!S.viz) return;
+  setVizIsolation(false);
+  $("vizFrame").srcdoc = vizDoc(S.viz);
 };
-$("modalDocx").onclick = () => {
-  const id = $("modalTitle").dataset.doc;
-  if (id) downloadFile(`/api/${S.sid}/download/${id}.docx`, `${id}.docx`);
-};
-$("zipAll").onclick = (e) => {
-  e.preventDefault();
-  downloadFile(`/api/${S.sid}/download/zip`, `ShieldMate72_documents.zip`);
-};
-$("makeDocs").onclick = makeDocs;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModals(); });
+$("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModals(); });
+$("vizModal").addEventListener("click", (e) => { if (e.target.id === "vizModal") closeModals(); });
 $("newCase").onclick = async () => {
+  if (S.busy && !S.replaying) return;
+  S.stopReplay = true;
   $("chat").innerHTML = "";
-  S.viz = null;
-  $("vizFrame").srcdoc = "";
+  S.lawInFlight = false;
   await newSession();
-  say("system", "새 사건을 시작했습니다.");
+  document.body.dataset.viewSet = "";
+  setStage("start");
+  window.scrollTo({ top: 0 });
 };
+setInterval(tick, 1000);
 init();

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="시큐에이드 로고">
+  <rect width="512" height="512" rx="112" fill="#C2410C"/>
+  <path d="M256 82 L398 134 V250 C398 344 338 410 256 436 C174 410 114 344 114 250 V134 Z"
+        fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linejoin="round"/>
+  <path d="M256 186 V334 M182 260 H330" stroke="#FFFFFF" stroke-width="44" stroke-linecap="round"/>
+</svg>

@@ -3,222 +3,266 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a1020" />
+  <meta name="theme-color" content="#16181D" />
+  <meta property="og:image" content="/static/logo.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="description" content="실드메이트 72 — 중소·소호 기업 보안사고 초동대응 파트너. 로그·.eml 판별, 24h·72h 법정 기한, 지금 할 일, 신고서·통지문 DOCX 초안." />
-  <title>실드메이트 72 (ShieldMate 72) — 중소·소호 기업 보안사고 초동대응 파트너</title>
+  <meta name="description" content="시큐에이드 — 중소·소호 기업 보안사고 초동대응 파트너. 로그·.eml 판별, 24h·72h 법정 기한, 지금 할 일 체크리스트, 신고서·통지문 DOCX 초안." />
+  <title>시큐에이드 (SecuAid) — 중소·소호 기업 보안사고 초동대응 파트너</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <link rel="icon" type="image/png" href="/static/logo.png" />
   <link rel="apple-touch-icon" href="/static/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
-<body data-view="board" data-board-tab="1">
-  <a class="skip" href="#chat">본문으로 바로 가기</a>
+<body data-stage="start" data-view="board" data-board-tab="1">
+  <a class="skip" href="#main">본문으로 바로 가기</a>
 
   <header class="topbar">
-    <div class="brand">
-      <img class="brand-logo" src="/static/logo.png" width="44" height="44" alt="실드메이트 72 로고" />
-      <span class="brand-text">
-        <h1 class="brand-name">실드메이트 72<span class="brand-en">ShieldMate 72</span></h1>
-        <span class="brand-sub">중소·소호 기업 보안사고 초동대응 파트너 · Liner .EXE-THON 2026</span>
-      </span>
-    </div>
-    <div class="casehead">
-      <div id="caseTitle" class="case-title">사건을 시작하세요</div>
-      <div id="caseMeta" class="case-meta">인지 시각 미확인</div>
-      <div id="sevTrail" class="sev-trail"></div>
-    </div>
-    <div class="status-group">
-      <div id="sevBadge" class="sev sev-none">—</div>
-      <div id="modePill" class="pill">확인 중</div>
+    <div class="topbar-in">
+      <a class="brand" href="/" aria-label="시큐에이드 처음 화면">
+        <img class="brand-logo" src="/static/logo.png" width="34" height="34" alt="" />
+        <span class="brand-text">
+          <span class="brand-name">시큐에이드 <span class="brand-en">SecuAid</span></span>
+          <span class="brand-sub">중소·소호 기업 보안사고 초동대응 파트너</span>
+        </span>
+      </a>
+      <div class="casehead case-only">
+        <div id="caseTitle" class="case-title">사건을 시작하세요</div>
+        <div id="caseMeta" class="case-meta">인지 시각 미확인</div>
+      </div>
+      <div class="status-group">
+        <div id="sevTrail" class="sev-trail case-only" aria-label="심각도 변화"></div>
+        <div id="sevBadge" class="sev sev-none case-only">—</div>
+        <div id="modePill" class="pill" title="Liner API 연결 상태"><span class="dot"></span><span id="modeText">확인 중</span></div>
+        <button id="newCase" class="btn ghost-dark case-only" type="button">새 사건</button>
+      </div>
     </div>
   </header>
 
-  <section class="strengths" aria-label="실드메이트 72 의 네 가지 강점">
-    <article class="strength">
-      <span class="s-no">01</span>
-      <div class="s-body">
-        <b>로그·.eml 자동 판별</b>
-        <p>M365·방화벽·메일 원본을 붙여넣으면 형식을 알아서 읽습니다</p>
+  <section id="clock" class="clock case-only" aria-label="72시간 시계">
+    <div class="clock-in">
+      <div class="clock-main">
+        <span id="clockLabel" class="clock-label">다음 법정 기한</span>
+        <span id="clockTime" class="clock-time" aria-live="off">--:--:--</span>
+        <span id="clockDue" class="clock-due">인지 시각과 사실관계가 들어오면 계산됩니다</span>
       </div>
-    </article>
-    <article class="strength">
-      <span class="s-no">02</span>
-      <div class="s-body">
-        <b>24h · 72h 법정 기한</b>
-        <p>정보통신망법·개인정보보호법 기한을 계산하고 Liner로 근거 확인</p>
+      <div class="track-wrap">
+        <div class="track-scale"><span>0h 인지</span><span class="m24">24h 침해신고</span><span>72h 개인정보 통지</span></div>
+        <div class="track" id="track">
+          <span class="seg" data-seg="0"></span><span class="seg" data-seg="1"></span><span class="seg" data-seg="2"></span><span class="seg" data-seg="3"></span><span class="seg" data-seg="4"></span>
+          <span class="mark mark24" aria-hidden="true"></span>
+          <span id="nowMarker" class="now" aria-hidden="true"></span>
+        </div>
+        <div class="track-labels" id="trackLabels">
+          <span>0~10분</span><span>10~60분</span><span>1~4시간</span><span>4~24시간</span><span>24~72시간</span>
+        </div>
       </div>
-    </article>
-    <article class="strength">
-      <span class="s-no">03</span>
-      <div class="s-body">
-        <b>지금 할 일 + 금기 가드레일</b>
-        <p>우선순위 행동과 “하면 안 되는 일”을 함께 보여 줍니다</p>
+      <div class="clock-side">
+        <div class="kv"><span>초동 조치</span><b id="progressText">0 / 0</b></div>
+        <div class="bar"><span id="progressBar"></span></div>
+        <div class="kv"><span>문서 초안</span><b id="docsCount">아직 없음</b></div>
       </div>
-    </article>
-    <article class="strength">
-      <span class="s-no">04</span>
-      <div class="s-body">
-        <b>신고서·통지문 원클릭</b>
-        <p>〔미확인〕 칸을 남긴 초안을 MD·DOCX·ZIP으로 내려받기</p>
-      </div>
-    </article>
+    </div>
   </section>
 
-  <nav class="mobile-tabs" aria-label="화면 전환">
-    <button class="m-tab" data-tab="chat">대화</button>
-    <button class="m-tab is-on" data-tab="1">할 일·기한 <span class="tab-badge" id="mBadge1">0</span></button>
-    <button class="m-tab" data-tab="2">판정·차트 <span class="tab-badge" id="mBadge2">0</span></button>
-    <button class="m-tab" data-tab="3">문서 <span class="tab-badge" id="mBadge3">0</span></button>
-  </nav>
+  <div id="main">
+    <!-- 첫 화면 -->
+    <section id="startView" class="start start-only" aria-labelledby="startTitle">
+      <div class="start-in">
+        <div class="hero">
+          <span class="eyebrow">첫 72시간 · 보안 담당자가 없는 회사를 위해</span>
+          <h1 id="startTitle">무슨 일이 생겼나요?</h1>
+          <p>상황을 한 줄로 적거나 로그·메일 원본을 붙여넣으세요. 유형을 고르면 지금 할 일과 신고 기한이 바로 계산됩니다.</p>
+        </div>
 
-  <nav class="catbar" id="catBar" aria-label="10대 침해 사고 유형">
-    <span class="catbar-label">사고 유형</span>
-    <div class="cat-chips" id="catChips"></div>
-  </nav>
+        <form id="startForm" class="start-box">
+          <label for="startInput" class="lbl">상황 설명 또는 로그 붙여넣기</label>
+          <textarea id="startInput" rows="3" placeholder="예) 거래처에서 우리가 계좌를 바꿨냐고 전화가 왔어요. 우리는 바꾼 적이 없습니다."></textarea>
+          <div class="start-actions">
+            <label class="btn" for="fileInput">.csv · .eml 첨부</label>
+            <span class="hint">개인정보는 Liner로 보내기 전에 가려집니다</span>
+            <span class="spacer"></span>
+            <button id="startSend" class="btn accent" type="submit">사건 시작</button>
+          </div>
+        </form>
 
-  <div class="toolbar">
-    <label class="lbl" for="scenario">데모 시나리오</label>
-    <select id="scenario"></select>
-    <button id="replay" class="btn primary" title="데모 입력을 대화창에 한 단계씩 보내며 판단이 바뀌는 과정을 보여 줍니다">▶ 단계별 재생</button>
-    <button id="runScenario" class="btn" title="모든 단계를 한 번에 실행하고 결과만 보여 줍니다">한 번에 실행</button>
-    <button id="newCase" class="btn">새 사건</button>
-    <span class="spacer"></span>
-    <span id="apiInfo" class="api-info"></span>
-  </div>
+        <div class="cats">
+          <div class="row-head">
+            <h2>또는 사고 유형 고르기</h2>
+            <span class="hint">심화 = 로그 분석·문서까지 깊게 지원</span>
+          </div>
+          <div class="cat-grid" id="catChips" aria-label="10대 침해 사고 유형"></div>
+        </div>
 
-  <main class="workspace">
-    <section class="panel chat-panel" id="paneChat" aria-label="대화와 증거 입력">
-      <div class="panel-head">
-        <h2>대화 &amp; 증거 입력</h2>
-        <span class="hint">로그·메일 원본을 그대로</span>
-      </div>
-
-      <div class="quick-chips" id="quickChips" aria-label="빠른 상황 예시">
-        <button class="quick" data-q="거래처에서 우리가 계좌를 바꿨냐고 전화가 왔어요. 우리는 바꾼 적이 없습니다.">거래처가 계좌 변경을 물어요</button>
-        <button class="quick" data-q="출근해 보니 파일 서버 파일들이 .locked 확장자로 바뀌었고 랜섬노트가 있습니다.">파일 서버가 랜섬웨어에 감염됐어요</button>
-        <button class="quick" data-q="협력사와 비슷하게 생긴 도메인에서 계정 확인을 요구하는 메일을 받았습니다.">비슷한 도메인 사칭 메일이 왔어요</button>
-      </div>
-
-      <div class="attach-row">
-        <label class="btn attach" for="fileInput" title="CSV·로그·.eml 파일을 읽어 대화로 보냅니다">📎 로그(.csv) · 메일(.eml) 첨부</label>
-        <input id="fileInput" type="file" accept=".csv,.eml,.txt,.log,.json,.tsv" multiple hidden />
-        <span class="hint" id="attachInfo">파일은 브라우저에서 읽어 분석합니다</span>
-      </div>
-
-      <div id="chat" class="chat" tabindex="0"></div>
-
-      <div class="composer">
-        <textarea id="input" rows="3" placeholder="예) 출근하니 파일 서버 파일이 .locked로 바뀌었어요. / 거래처에서 우리가 계좌를 바꿨냐고 전화가 왔어요."></textarea>
-        <div class="composer-actions">
-          <span class="hint" id="typing"></span>
-          <button id="send" class="btn primary">보내기</button>
+        <div class="demo">
+          <span class="demo-title">데모로 보기</span>
+          <label class="sr" for="scenario">데모 시나리오</label>
+          <select id="scenario"></select>
+          <button id="replay" class="btn dark" type="button" title="데모 입력을 대화창에 한 단계씩 보내며 판단이 바뀌는 과정을 보여 줍니다">▶ 단계별 재생</button>
+          <button id="runScenario" class="btn" type="button" title="모든 단계를 한 번에 처리하고 결과만 보여 줍니다">한 번에 실행</button>
+          <span class="hint">모든 데이터는 가상입니다</span>
         </div>
       </div>
     </section>
 
-    <section class="panel board-panel" aria-label="대응 보드">
-      <div class="board-tabs" role="tablist" aria-label="대응 보드 탭">
-        <button class="b-tab is-on" data-tab="1" role="tab" aria-selected="true">① 초동대응 · 법정기한 <span class="tab-badge" id="badgeTab1">0</span></button>
-        <button class="b-tab" data-tab="2" role="tab" aria-selected="false">② 판정 · 타임라인 · 차트 <span class="tab-badge" id="badgeTab2">0</span></button>
-        <button class="b-tab" data-tab="3" role="tab" aria-selected="false">③ 문서 초안 (MD/DOCX/ZIP) <span class="tab-badge" id="badgeTab3">0</span></button>
-      </div>
+    <!-- 사건 워크스페이스 -->
+    <main class="workspace case-only">
+      <section class="panel chat-panel" id="paneChat" aria-label="대화와 증거 입력">
+        <div class="panel-head">
+          <h2>대화 · 증거</h2>
+          <button id="stopReplay" class="btn small hidden" type="button">■ 재생 정지</button>
+          <span class="hint" id="chatHint">로그·.eml 그대로 붙여넣기</span>
+        </div>
+        <div id="chat" class="chat" tabindex="0" aria-live="polite"></div>
+        <div class="composer">
+          <div class="quick-chips" id="quickChips" aria-label="빠른 질문">
+            <button class="quick" type="button" data-q="신고해야 하나요? 기한이 언제인가요?">신고해야 하나요?</button>
+            <button class="quick" type="button" data-q="이미 송금했대요.">이미 송금했대요</button>
+            <button class="quick" type="button" data-q="통지문과 신고서 초안을 만들어줘">문서 초안 만들기</button>
+          </div>
+          <label for="input" class="lbl">상황을 말하거나 로그를 붙여넣으세요 <span class="kbd">Ctrl/⌘+Enter</span></label>
+          <textarea id="input" rows="3" placeholder="예) 사서함에 고객 배송 문의가 1,300명분 정도 있어요."></textarea>
+          <div class="composer-actions">
+            <label class="btn icon-btn" for="fileInput" title="CSV·로그·.eml 파일을 읽어 대화로 보냅니다">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.5l-8.5 8.5a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8-8"></path></svg>
+              .csv · .eml
+            </label>
+            <input id="fileInput" type="file" accept=".csv,.eml,.txt,.log,.json,.tsv" multiple hidden />
+            <span class="hint" id="typing" aria-live="polite"></span>
+            <span class="spacer"></span>
+            <button id="send" class="btn dark" type="button">보내기</button>
+          </div>
+          <span class="hint" id="attachInfo"></span>
+        </div>
+      </section>
 
-      <div class="board-body">
+      <section class="board-panel" aria-label="대응 보드">
+        <nav class="b-tabs" role="tablist" aria-label="보드 보기">
+          <button class="b-tab is-on" data-tab="1" role="tab" aria-selected="true" type="button">지금 할 일 <span class="tab-badge" id="badgeTab1">0</span></button>
+          <button class="b-tab" data-tab="2" role="tab" aria-selected="false" type="button">타임라인 <span class="tab-badge" id="badgeTab2">0</span></button>
+          <button class="b-tab" data-tab="3" role="tab" aria-selected="false" type="button">문서 <span class="tab-badge" id="badgeTab3">0</span></button>
+          <button class="b-tab" data-tab="4" role="tab" aria-selected="false" type="button">근거·차트 <span class="tab-badge" id="badgeTab4">0</span></button>
+        </nav>
+
         <div class="tab-pane" id="tab-1" role="tabpanel">
-          <div class="panel-head">
-            <h2>지금 할 일</h2>
-            <span id="phaseLabel" class="hint"></span>
+          <div class="card list-card">
+            <div class="card-head">
+              <h2>지금 할 일</h2>
+              <span id="phaseLabel" class="hint"></span>
+            </div>
+            <div id="actions" class="actions"></div>
           </div>
-          <ol id="actions" class="actions"></ol>
-
-          <div class="panel-head">
-            <h2>신고·통지 기한</h2>
-            <span class="hint">결정적 규칙 + Liner 검색으로 재확인</span>
-          </div>
-          <div id="deadlines" class="deadlines"></div>
         </div>
 
         <div class="tab-pane" id="tab-2" role="tabpanel" hidden>
-          <div class="two-col">
-            <div>
-              <div class="panel-head"><h2>판정</h2></div>
-              <div id="verdict" class="verdict"></div>
-            </div>
-            <div>
-              <div class="panel-head"><h2>하지 말 것</h2></div>
-              <ul id="dontdo" class="dontdo"></ul>
-            </div>
+          <div class="card list-card">
+            <div class="card-head"><h2>타임라인</h2><span class="hint">KST · UTC 원본 병기</span></div>
+            <div id="timeline" class="timeline"></div>
           </div>
-
-          <div class="panel-head">
-            <h2>유형·즉답 가이드</h2>
-            <button id="guideBtn" class="btn small">가이드 받기</button>
-          </div>
-          <div id="guide" class="guide"></div>
-
-          <div class="panel-head">
-            <h2>사건 보드 차트</h2>
-            <button id="vizBtn" class="btn small">차트로 보기</button>
-          </div>
-          <div id="vizInfo" class="hint">Liner Visualization API로 이 사건의 0~72시간 대응을 한 장으로 그립니다.</div>
-
-          <div class="panel-head"><h2>확인 / 추정 / 미확인</h2></div>
-          <div id="facts" class="facts"></div>
-
-          <div class="panel-head"><h2>타임라인</h2><span class="hint">UTC 원본 / KST 병기</span></div>
-          <div id="timeline" class="timeline"></div>
-
-          <div class="panel-head"><h2>Liner 근거</h2></div>
-          <div id="sources" class="sources"></div>
         </div>
 
         <div class="tab-pane" id="tab-3" role="tabpanel" hidden>
-          <div class="docs-head">
-            <div>
-              <h2>문서 초안</h2>
-              <p class="hint">발송·제출은 사람이 합니다. 〔미확인〕 칸은 지우지 않고 남깁니다.</p>
+          <div class="card">
+            <div class="card-head docs-head">
+              <div>
+                <h2>문서 초안</h2>
+                <p class="hint">발송·제출은 사람이 합니다. 〔미확인〕 칸은 지우지 않고 남깁니다.</p>
+              </div>
+              <div class="docs-actions">
+                <button id="makeDocs" class="btn dark" type="button">문서 초안 생성</button>
+                <button id="zipAll" class="btn hidden" type="button">전체 ZIP</button>
+              </div>
             </div>
-            <div class="docs-actions">
-              <button id="makeDocs" class="btn primary">문서 초안 생성</button>
-              <a id="zipAll" class="btn hidden" href="#">전체 ZIP</a>
-            </div>
+            <div id="docs" class="docs"></div>
           </div>
-          <div id="docs" class="docs"></div>
         </div>
-      </div>
-    </section>
-  </main>
+
+        <div class="tab-pane" id="tab-4" role="tabpanel" hidden>
+          <div class="card">
+            <div class="card-head"><h2>유형별 즉답 가이드</h2><button id="guideBtn" class="btn small" type="button">다시 받기</button></div>
+            <div id="guide" class="guide"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>사건 보드 차트</h2><button id="vizBtn" class="btn small" type="button">차트로 보기</button></div>
+            <div id="vizInfo" class="hint pad">Liner Visualization API로 이 사건의 0~72시간 대응을 한 장으로 그립니다.</div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>확인 · 추정 · 미확인</h2></div>
+            <div id="facts" class="facts"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Liner 근거</h2><span id="lawStatus" class="hint"></span></div>
+            <div id="sources" class="sources"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side-panel" id="sidePane" aria-label="판정과 기한">
+        <div class="card verdict-card">
+          <div class="card-head"><h2 class="muted-h">판정</h2><span id="verdictLevel" class="lv">미확인</span></div>
+          <div id="verdict" class="verdict"></div>
+        </div>
+        <div class="card list-card">
+          <div class="card-head"><h2>신고·통지 기한</h2><span id="lawBadge" class="hint">규칙 엔진 계산</span></div>
+          <div id="deadlines" class="deadlines"></div>
+        </div>
+        <div class="card dont-card">
+          <h2>하지 말 것</h2>
+          <ul id="dontdo" class="dontdo"></ul>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <nav class="m-tabs case-only" aria-label="화면 전환">
+    <button class="m-tab" data-tab="chat" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path></svg>대화
+    </button>
+    <button class="m-tab is-on" data-tab="1" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"></path><path d="M20 12v7a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2h9"></path></svg>할 일 <span class="tab-badge" id="mBadge1">0</span>
+    </button>
+    <button class="m-tab" data-tab="side" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>기한·판정
+    </button>
+    <button class="m-tab" data-tab="3" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"></path><path d="M14 3v6h6"></path></svg>문서 <span class="tab-badge" id="mBadge3">0</span>
+    </button>
+  </nav>
 
   <footer class="foot">
-    <span>실드메이트 72 · ShieldMate 72</span>
-    <span>이 화면은 초안 작성 도구입니다 — 신고·발송의 최종 판단과 제출은 담당자가 합니다.</span>
+    <span>시큐에이드 · SecuAid · Liner .EXE-THON 2026</span>
+    <span>초안 작성 도구입니다 — 신고·발송의 최종 판단과 제출은 담당자가 합니다. 법률 자문이 아닙니다.</span>
   </footer>
 
-  <div id="modal" class="modal hidden">
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-box">
       <div class="modal-head">
         <h3 id="modalTitle">문서</h3>
-        <div>
-          <button id="modalDownload" class="btn small">MD</button>
-          <button id="modalDocx" class="btn small">DOCX</button>
-          <button id="modalCopy" class="btn small">복사</button>
-          <button class="btn small" onclick="document.getElementById('modal').classList.add('hidden')">닫기</button>
+        <div class="modal-tools">
+          <button id="modalDownload" class="btn small" type="button">MD</button>
+          <button id="modalDocx" class="btn small" type="button">DOCX</button>
+          <button id="modalCopy" class="btn small" type="button">복사</button>
+          <button id="modalClose" class="btn small" type="button">닫기</button>
         </div>
       </div>
       <pre id="modalBody"></pre>
     </div>
   </div>
 
-  <div id="vizModal" class="modal hidden">
+  <div id="vizModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="vizTitle">
     <div class="modal-box viz-box">
       <div class="modal-head">
         <h3 id="vizTitle">사건 보드 차트</h3>
-        <div>
-          <span id="vizTheme" class="pill"></span>
-          <button class="btn small" onclick="document.getElementById('vizModal').classList.add('hidden')">닫기</button>
+        <div class="modal-tools">
+          <span id="vizWarn" class="hint hidden"></span>
+          <button id="vizUnsafe" class="btn small hidden" type="button" title="차트 HTML이 이 화면의 데이터에 접근할 수 있게 됩니다">격리 해제하고 보기</button>
+          <span id="vizTheme" class="pill light"></span>
+          <button id="vizClose" class="btn small" type="button">닫기</button>
         </div>
       </div>
-      <iframe id="vizFrame" class="viz-frame" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer" title="사건 보드 차트"></iframe>
+      <iframe id="vizFrame" class="viz-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="사건 보드 차트"></iframe>
     </div>
   </div>
 

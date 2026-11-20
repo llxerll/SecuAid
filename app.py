@@ -1,4 +1,4 @@
-"""실드메이트 72 (ShieldMate 72) 웹 앱 — 보안사고 초동대응 사건 보드 + 대화형 에이전트.
+"""시큐에이드 (SecuAid) 웹 앱 — 보안사고 초동대응 사건 보드 + 대화형 에이전트.
 
 실행: python app.py  (기본 http://127.0.0.1:8000, PORT 환경변수로 변경)
 Vercel: api/index.py 가 이 모듈의 `app` 을 노출한다(서버리스).
@@ -36,8 +36,8 @@ DATA_DIR = ROOT / "data"
 LOCK = threading.Lock()
 MAX_STATE_CHARS = 4_000_000          # 토큰 폭주 방지(약 4MB)
 
-BRAND_KO = "실드메이트 72"
-BRAND_EN = "ShieldMate 72"
+BRAND_KO = "시큐에이드"
+BRAND_EN = "SecuAid"
 
 
 # --------------------------------------------------------------------------- 세션·상태
@@ -100,9 +100,10 @@ def index():
 @app.get("/api/health")
 def health():
     client = LinerClient.from_env()
-    status = client.status()
+    status = client.status(probe=request.args.get("probe") == "1")
     return _ok(payload={
         "ok": True,
+        "region": os.environ.get("VERCEL_REGION", "local"),
         "brand": {"name": BRAND_KO, "en": BRAND_EN,
                   "subtitle": "중소·소호 기업 보안사고 초동대응 파트너"},
         "liner": status,
@@ -155,8 +156,56 @@ def message(sid: str):
     if not agent:
         return _missing()
     text = (body or {}).get("text", "")
-    board = agent.handle(text)
+    board = agent.handle(text, defer=bool(body.get("defer")))
     return _ok(agent, {"board": board})
+
+
+@app.post("/api/<sid>/enrich")
+def enrich(sid: str):
+    """Liner 보강(사실 보조 추출 → 브리핑·즉답 가이드 동시 호출). 판정은 /message 가 이미 돌려줬다."""
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    tasks = body.get("tasks") or ["narrate"]
+    out = agent.enrich([str(t) for t in tasks][:4], text=str(body.get("text") or "")[:4000])
+    return _ok(agent, {**out, "board": agent.board()})
+
+
+@app.post("/api/<sid>/law")
+def law_check(sid: str):
+    """법령 재확인(Search Agent ∥ Search)만 수행하고 결과를 돌려준다 — 사건 상태는 바꾸지 않는다.
+
+    20~30초 걸리므로 화면은 이 요청을 다른 요청과 동시에 보내고, 끝나면 /law/merge 로 붙인다.
+    """
+    agent = _agent(sid, _body())
+    if not agent:
+        return _missing()
+    return jsonify({"law_check": agent.fetch_law_check()})
+
+
+@app.post("/api/<sid>/law/merge")
+def law_merge(sid: str):
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    agent.merge_law_check(body.get("law_check") or {})
+    agent._recompute()
+    return _ok(agent, {"board": agent.board()})
+
+
+@app.post("/api/<sid>/action")
+def toggle_action(sid: str):
+    """지금 할 일 체크/해제 — 완료 시각이 신고서 '현재까지의 대응'에 들어간다."""
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    mark = agent.set_action_done(str(body.get("key") or ""), bool(body.get("done")))
+    if mark is None:
+        return jsonify({"error": "해당 항목이 없습니다."}), 404
+    return _ok(agent, {"mark": mark, "board": agent.board()})
 
 
 @app.post("/api/<sid>/category/<category_id>")
@@ -165,10 +214,13 @@ def apply_category(sid: str, category_id: str):
     agent = _agent(sid, body)
     if not agent:
         return _missing()
+    defer = bool(body.get("defer"))
     try:
-        board = agent.apply_category(category_id, guide=body.get("guide", True))
+        board = agent.apply_category(category_id, guide=False if defer else body.get("guide", True))
     except KeyError as exc:
         return jsonify({"error": str(exc)}), 404
+    if defer and agent.client.available:
+        board["pending"] = ["guide"]
     return _ok(agent, {"board": board, "category": board.get("category"),
                        "guide": board.get("guide")})
 
@@ -190,7 +242,8 @@ def run_scenario(sid: str, scenario_id: str):
     if not agent:
         return _missing()
     try:
-        board = _run(agent, scenario_id=scenario_id, aware_at=body.get("aware_at"))
+        board = _run(agent, scenario_id=scenario_id, aware_at=body.get("aware_at"),
+                     defer=bool(body.get("defer")))
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 404
     return _ok(agent, {"board": board})
@@ -210,7 +263,7 @@ def start_replay(sid: str, scenario_id: str):
     return _ok(agent, {"steps": steps, "board": agent.board()})
 
 
-@app.get("/api/<sid>/board")
+@app.route("/api/<sid>/board", methods=["GET", "POST"])
 def get_board(sid: str):
     agent = _agent(sid, _body())
     if not agent:
@@ -239,7 +292,7 @@ def make_docs(sid: str):
     agent = _agent(sid, body)
     if not agent:
         return _missing()
-    docs = agent.compose_docs()
+    docs = agent.compose_docs(wait_law=not body.get("defer"))
     agent._recompute()
     return _ok(agent, {"docs": docs, "board": agent.board()})
 
@@ -261,7 +314,7 @@ def _attachment(korean_name: str, fallback: str) -> dict:
 
 def _doc_filename(doc_id: str, doc: dict, ext: str) -> str:
     title = _safe_name(doc.get("title") or doc_id)
-    return f"실드메이트72_{title}_{doc_id}.{ext}"
+    return f"시큐에이드_{title}_{doc_id}.{ext}"
 
 
 @app.get("/api/<sid>/doc/<doc_id>")
@@ -273,7 +326,7 @@ def get_doc(sid: str, doc_id: str):
     if not doc:
         return "문서가 없습니다. 먼저 문서를 생성해 주세요.", 404
     return Response(doc["body"], mimetype="text/markdown; charset=utf-8",
-                    headers=_attachment(_doc_filename(doc_id, doc, "md"), f"ShieldMate72_{doc_id}.md"))
+                    headers=_attachment(_doc_filename(doc_id, doc, "md"), f"SecuAid_{doc_id}.md"))
 
 
 @app.post("/api/<sid>/download/zip")
@@ -304,7 +357,7 @@ def get_docx(sid: str, doc_id: str):
     if data is None:
         return "python-docx가 설치되어 있지 않습니다. Markdown으로 받아 주세요.", 501
     return Response(data, mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    headers=_attachment(_doc_filename(doc_id, doc, "docx"), f"ShieldMate72_{doc_id}.docx"))
+                    headers=_attachment(_doc_filename(doc_id, doc, "docx"), f"SecuAid_{doc_id}.docx"))
 
 
 @app.get("/api/<sid>/docs.zip")
@@ -329,9 +382,9 @@ def get_docs_zip(sid: str):
             data = to_docx(Document(doc["id"], doc["title"], doc["kind"], doc["body"]))
             if data:
                 zf.writestr(f"{base}.docx", data)
-    name = f"실드메이트72_사건문서_{agent.case.id}.zip"
+    name = f"시큐에이드_사건문서_{agent.case.id}.zip"
     return Response(buf.getvalue(), mimetype="application/zip",
-                    headers=_attachment(name, f"ShieldMate72_documents_{agent.case.id}.zip"))
+                    headers=_attachment(name, f"SecuAid_documents_{agent.case.id}.zip"))
 
 
 @app.get("/api/<sid>/report")
@@ -372,9 +425,9 @@ def _report_text(agent: Agent) -> str:
     return "\n".join(lines)
 
 
-def _run(agent: Agent, *, scenario_id: str, aware_at: str | None = None) -> dict:
+def _run(agent: Agent, *, scenario_id: str, aware_at: str | None = None, defer: bool = False) -> dict:
     """시나리오 한 번에 실행 — 데모·E2E 테스트 공용."""
-    return agent.run_scenario(scenario_id, aware_at=aware_at)
+    return agent.run_scenario(scenario_id, aware_at=aware_at, defer=defer)
 
 
 if __name__ == "__main__":

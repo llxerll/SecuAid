@@ -214,12 +214,12 @@ class TestDocxDownloadHttp(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.data.startswith(b"PK"))
         cd = res.headers["Content-Disposition"]
-        self.assertIn('filename="ShieldMate72_tpl_intrusion_report.docx"', cd)
+        self.assertIn('filename="SecuAid_tpl_intrusion_report.docx"', cd)
         self.assertIn("attachment", cd)
         star = re.search(r"filename\*=UTF-8''([^;]+)", cd)
         self.assertIsNotNone(star, cd)
         decoded = unquote(star.group(1))
-        self.assertTrue(decoded.startswith("실드메이트72_"), decoded)
+        self.assertTrue(decoded.startswith("시큐에이드_"), decoded)
         self.assertTrue(decoded.endswith(".docx"), decoded)
 
     def test_md_download_headers(self):
