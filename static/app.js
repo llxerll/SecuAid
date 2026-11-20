@@ -410,13 +410,16 @@ async function applyCategory(id) {
 async function toggleAction(key, done) {
   const a = ((S.board || {}).actions || []).find((x) => x.key === key);
   if (!a) return;
-  a.done = done; a.done_at = done ? "저장 중" : null;          // 먼저 화면에 반영
-  renderActions(S.board); renderProgress(S.board);
+  S.optimistic = S.optimistic || {};
+  S.optimistic[key] = done;                              // 저장이 끝날 때까지 다른 응답이 와도 체크 상태를 유지
+  render(S.board);
   try {
     const data = await post(`/api/${S.sid}/action`, { key, done });
-    S.board = data.board; renderActions(data.board); renderProgress(data.board);
+    delete S.optimistic[key];
+    S.board = data.board; render(data.board);
   } catch (e) {
-    a.done = !done; renderActions(S.board); renderProgress(S.board);
+    delete S.optimistic[key];
+    render(S.board);
     say("system", "체크를 저장하지 못했습니다: " + e.message);
   }
 }
@@ -484,26 +487,169 @@ async function refreshGuide() {
   await runEnrich(["guide"]);
 }
 
-async function showViz() {
-  if (S.busy) return;
+/* ---------------------------------------------------------------- 72시간 대응 차트
+   기본은 앱이 사건 데이터로 직접 그리는 차트(즉시·결정적). Liner Visualization은 두 번째 탭에서 생성한다. */
+function showViz() {
+  if (!S.board) return;
+  renderChart(S.board);
+  setVizTab("native");
+  $("vizModal").classList.remove("hidden");
+  $("vizClose").focus();
+}
+
+function setVizTab(tab) {
+  const native = tab === "native";
+  $("vizTabNative").classList.toggle("is-on", native);
+  $("vizTabLiner").classList.toggle("is-on", !native);
+  $("vizTabNative").setAttribute("aria-selected", String(native));
+  $("vizTabLiner").setAttribute("aria-selected", String(!native));
+  $("chartNative").hidden = !native;
+  $("linerPane").hidden = native;
+  $("vizPrint").classList.toggle("hidden", !native);
+  $("vizTheme").classList.toggle("hidden", !!(native || !S.viz));
+  if (native) { $("vizWarn").classList.add("hidden"); $("vizUnsafe").classList.add("hidden"); }
+  if (!native) {
+    const has = !!S.viz;
+    $("vizFrame").hidden = !has;
+    $("vizIntro").classList.toggle("hidden", !!(has || S.vizLoading));
+    $("vizGenerate").disabled = !S.liner;
+    if (!S.liner) $("vizIntro").querySelector("p").textContent = "Liner 키가 없어 AI 시각화를 만들 수 없습니다. 왼쪽 '대응 차트'는 키 없이도 동작합니다.";
+  }
+}
+
+async function generateLinerViz() {
+  if (S.vizLoading) return;
   if (S.viz) { openViz(); return; }
-  $("vizBtn").textContent = "차트 생성 중…";
-  setBusy(true, "Liner Visualization이 차트를 그리는 중… (20~30초)");
+  S.vizLoading = true;
+  $("vizIntro").classList.add("hidden");
+  $("vizLoading").classList.remove("hidden");
+  const t0 = performance.now();
+  const timer = setInterval(() => {
+    $("vizLoadingText").textContent = `Liner Visualization이 이 사건의 차트를 그리는 중입니다… ${Math.round((performance.now() - t0) / 1000)}초 (보통 10~20초)`;
+  }, 1000);
   linerJob(+1);
   try {
     const data = await withSession(() => post(`/api/${S.sid}/viz`, {}));
     S.board = data.board || S.board;
     render(S.board);
     if (data.html) { S.viz = data.html; openViz(); }
-    else say("system", "차트를 만들지 못했습니다 — " + ((data.viz || {}).reason || "요약 카드로 대체합니다."));
+    else {
+      $("vizIntro").classList.remove("hidden");
+      $("vizIntro").querySelector("p").textContent = "차트를 만들지 못했습니다 — " + ((data.viz || {}).reason || "잠시 뒤 다시 시도해 주세요.");
+    }
   } catch (e) {
-    say("system", "차트 요청 실패: " + e.message);
+    $("vizIntro").classList.remove("hidden");
+    $("vizIntro").querySelector("p").textContent = "Liner 시각화 요청 실패: " + e.message;
   } finally {
+    clearInterval(timer);
+    S.vizLoading = false;
+    $("vizLoading").classList.add("hidden");
     linerJob(-1);
-    setBusy(false);
-    $("vizBtn").textContent = S.viz ? "차트 다시 보기" : "차트로 보기";
   }
 }
+
+const PHASES = [
+  { k: "pre", label: "인지 전", sub: "공격 경과" },
+  { k: 0, label: "0~10분", sub: "돈과 계정부터" },
+  { k: 1, label: "10~60분", sub: "확산 막기" },
+  { k: 2, label: "1~4시간", sub: "범위 확인" },
+  { k: 3, label: "4~24시간", sub: "침해사고 신고" },
+  { k: 4, label: "24~72시간", sub: "개인정보 신고·통지" },
+];
+const KIND_PHASE = { "지금": 0, "0~10분": 0, "15분": 1, "조사": 2 };
+
+function phaseOfHours(h) {
+  if (h < 0) return "pre";
+  for (let i = 0; i < 5; i++) if (h < SEG_HOURS[i + 1]) return i;
+  return 4;
+}
+function kstShort(ms) {
+  const k = new Date(ms + 9 * 3600e3);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${p(k.getUTCHours())}:${p(k.getUTCMinutes())}`;
+}
+
+function renderChart(b) {
+  const c = b.case || {};
+  const aware = c.aware_iso ? Date.parse(c.aware_iso) : null;
+  const now = Date.now();
+  const hNow = aware ? (now - aware) / 3600e3 : null;
+  const cur = hNow == null ? null : phaseOfHours(hNow);
+  const cols = {};
+  PHASES.forEach((p) => { cols[p.k] = { find: [], act: [], due: [], ops: [], docs: [] }; });
+
+  (b.findings || []).forEach((f) => {
+    if (!f.ts || !aware) { cols.pre.find.push(f); return; }
+    cols[phaseOfHours((Date.parse(f.ts) - aware) / 3600e3)].find.push(f);
+  });
+  (b.actions || []).forEach((a) => cols[KIND_PHASE[a.kind] ?? 0].act.push(a));
+  ((b.deadlines || {}).items || []).forEach((d) => {
+    if (d.status === "비해당") return;
+    const hours = d.due_iso && aware ? (Date.parse(d.due_iso) - aware) / 3600e3 - 0.001 : (d.rule_id === "R_INTRUSION_REPORT" ? 23.9 : 71.9);
+    cols[phaseOfHours(hours)].due.push(d);
+  });
+  ((b.deadlines || {}).operational || []).filter((o) => o.triggered).forEach((o) => cols[0].ops.push(o));
+  cols[3].docs = b.docs || [];
+
+  const sev = b.severity || {};
+  const acts = b.actions || [];
+  const done = acts.filter((a) => a.done).length;
+  const next = (b.deadlines || {}).next_due;
+  const head = `
+    <div class="ch-summary">
+      <div class="ch-title"><span class="sev sev-${esc(sev.level || "none")}">${esc(sev.level || "—")} ${esc(sev.name || "")}</span>
+        <b>${esc(c.title || "사건")}</b></div>
+      <div class="ch-kpis">
+        <span><em>인지</em>${esc(c.aware_at || "미확인")}</span>
+        <span><em>경과</em>${hNow == null ? "—" : elapsed(Math.max(0, Math.round(hNow * 60)))}</span>
+        <span><em>초동 조치</em>${done} / ${acts.length}</span>
+        <span><em>다음 기한</em>${next ? esc(next.title) + " · " + esc(next.due) : "판단 보류"}</span>
+      </div>
+    </div>`;
+
+  const severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const colHtml = PHASES.map((p) => {
+    const col = cols[p.k];
+    const isCur = cur === p.k;
+    const isPast = cur != null && p.k !== "pre" && cur !== "pre" && p.k < cur;
+    let range = "";
+    if (aware && p.k !== "pre") range = `${kstShort(aware + SEG_HOURS[p.k] * 3600e3)} ~ ${kstShort(aware + SEG_HOURS[p.k + 1] * 3600e3)}`;
+    else if (p.k === "pre" && aware) range = `~ ${kstShort(aware)}`;
+    const blocks = [];
+    if (col.find.length) {
+      const top = col.find.slice().sort((x, y) => (severityOrder[x.severity] ?? 5) - (severityOrder[y.severity] ?? 5)).slice(0, 5)
+        .sort((x, y) => String(x.ts).localeCompare(String(y.ts)));
+      blocks.push(`<div class="ch-lane"><div class="ch-lane-h">탐지 ${col.find.length}건</div>${top.map((f) => `
+        <div class="ch-find ${f.severity === "critical" ? "crit" : ""}"><span class="t">${f.ts ? esc(String(f.ts_kst || "").replace(/^\d{4}-/, "").replace(" KST", "")) : "시각 미상"}</span>${esc(f.summary)}</div>`).join("")}
+        ${col.find.length > top.length ? `<div class="ch-more">외 ${col.find.length - top.length}건 · 타임라인 탭</div>` : ""}</div>`);
+    }
+    if (col.act.length) {
+      blocks.push(`<div class="ch-lane"><div class="ch-lane-h">할 일 ${col.act.filter((a) => a.done).length}/${col.act.length}</div>${col.act.map((a) => `
+        <div class="ch-act ${a.done ? "done" : ""}"><span class="box" aria-hidden="true">${a.done ? "✓" : ""}</span><span>${esc(a.action)}<small>${esc(a.who)}${a.done && a.done_at ? " · 완료 " + esc(a.done_at) : ""}</small></span></div>`).join("")}</div>`);
+    }
+    if (col.ops.length) {
+      blocks.push(`<div class="ch-lane"><div class="ch-lane-h">즉시 연락</div>${col.ops.map((o) => `<div class="ch-op">${esc(o.title)}</div>`).join("")}</div>`);
+    }
+    if (col.due.length) {
+      blocks.push(col.due.map((d) => {
+        const over = d.due_iso && Date.parse(d.due_iso) < now;
+        return `<div class="ch-due ${esc(d.status)}${over ? " over" : ""}"><div class="ch-due-top"><b>${esc(d.title)}</b><span class="chip ${esc(d.status.replace(/[()\s]/g, ""))}">${esc(d.status)}</span></div>
+          <span class="mono">${esc(d.due || "마감 미확인")}${over ? " · 경과" : ""}</span><small>${esc(d.to)}</small></div>`;
+      }).join(""));
+    }
+    if (p.k === 3) {
+      blocks.push(col.docs.length
+        ? `<div class="ch-lane"><div class="ch-lane-h">문서 초안 ${col.docs.length}종</div><div class="ch-op">신고서·통지문 준비됨 — 발송은 담당자</div></div>`
+        : `<div class="ch-lane muted"><div class="ch-lane-h">문서 초안</div><div class="ch-op">아직 생성 전 — [문서] 탭</div></div>`);
+    }
+    return `<section class="ch-col${isCur ? " cur" : ""}${isPast ? " past" : ""}${p.k === "pre" ? " pre" : ""}">
+      <header><div><b>${p.label}</b>${isCur ? '<span class="now-tag">지금</span>' : ""}</div><span>${p.sub}</span>${range ? `<span class="mono">${range}</span>` : ""}</header>
+      ${blocks.join("") || '<div class="ch-empty">해당 없음</div>'}</section>`;
+  }).join("");
+  $("chartNative").innerHTML = head + `<div class="ch-scroll"><div class="ch-grid">${colHtml}</div></div>
+    <p class="ch-foot">규칙 엔진 결과로 그린 차트입니다(같은 입력이면 같은 결과). 시각은 KST, 구간은 인지 시각 기준입니다.</p>`;
+}
+
 /* 차트는 Liner가 만든 외부 HTML이다. 기본은 격리(sandbox="allow-scripts", 고유 출처 없음)로 띄워
    이 화면의 상태 토큰·세션 저장소에 닿지 못하게 한다. 격리 상태에서 흔히 깨지는 저장소·쿠키 접근은
    메모리 대체물로 바꾸고, 그려졌는지 여부를 부모에게 알려 준다. 실패할 때만 사용자가 직접 격리를 해제한다. */
@@ -542,14 +688,19 @@ function openViz() {
   if (!S.viz) return;
   setVizIsolation(true);
   $("vizFrame").srcdoc = vizDoc(S.viz);
-  $("vizTheme").textContent = ((S.board || {}).viz || {}).theme || "Liner Visualization";
-  $("vizTitle").textContent = "사건 보드 차트 — " + (((S.board || {}).category || {}).name || "대응 타임라인");
+  $("vizTheme").textContent = "Liner " + (((S.board || {}).viz || {}).theme || "Visualization");
+  setVizTab("liner");
   $("vizModal").classList.remove("hidden");
 }
 
 /* ---------------------------------------------------------------- 렌더링 */
 function render(b) {
   if (!b) return;
+  if (S.optimistic) {
+    (b.actions || []).forEach((a) => {
+      if (a.key in S.optimistic) { a.done = S.optimistic[a.key]; a.done_at = a.done ? (a.done_at || "저장 중") : null; }
+    });
+  }
   const c = b.case || {};
   $("caseTitle").textContent = c.title || "사건";
   $("caseMeta").textContent = `${c.id || ""} · 인지 ${c.aware_at || "미확인"} · 로그 ${(b.log_kinds || []).length ? (b.log_kinds || []).length + "종" : "없음"}`;
@@ -584,6 +735,7 @@ function render(b) {
   setBadge("badgeTab4", (b.sources || []).length);
   $("phaseLabel").textContent = b.phase ? `${b.phase.window || ""}${b.phase.elapsed_minutes != null ? " · 인지 후 " + elapsed(b.phase.elapsed_minutes) : ""}` : "";
   tick();
+  if (!$("vizModal").classList.contains("hidden") && !$("chartNative").hidden) renderChart(b);
 }
 
 function setBadge(id, n) {
@@ -746,11 +898,8 @@ function renderGuide(b) {
 }
 
 function renderViz(b) {
-  const v = b.viz || {};
-  if (v.ok) { $("vizInfo").textContent = v.description || "사건 대응 차트가 준비되었습니다."; return; }
-  const due = (b.deadlines || {}).next_due;
-  $("vizInfo").textContent = (v.reason || (S.liner ? "Liner Visualization API로 이 사건의 0~72시간 대응을 한 장으로 그립니다." : "Liner 키가 없어 차트 대신 72시간 시계를 사용하세요.")) +
-    (due ? ` 다음 기한: ${due.title} → ${due.due}` : "");
+  const done = (b.actions || []).filter((a) => a.done).length;
+  $("vizInfo").textContent = `인지 전 공격 경과부터 0~10분 · 10~60분 · 1~4시간 · 4~24시간 · 24~72시간까지, 할 일(${done}/${(b.actions || []).length} 완료)과 법정 기한을 한 장에 정리합니다. Liner AI 시각화는 차트 창의 두 번째 탭에서 만들 수 있습니다.`;
 }
 
 function flashSeverity(before, after, sev) {
@@ -860,6 +1009,11 @@ $("modalCopy").onclick = async () => {
 const closeModals = () => { $("modal").classList.add("hidden"); $("vizModal").classList.add("hidden"); };
 $("modalClose").onclick = closeModals;
 $("vizClose").onclick = closeModals;
+$("chartBtn").onclick = showViz;
+$("vizTabNative").onclick = () => setVizTab("native");
+$("vizTabLiner").onclick = () => { setVizTab("liner"); if (S.viz) openViz(); };
+$("vizGenerate").onclick = generateLinerViz;
+$("vizPrint").onclick = () => { document.body.classList.add("print-chart"); window.print(); setTimeout(() => document.body.classList.remove("print-chart"), 500); };
 $("vizUnsafe").onclick = () => {
   if (!S.viz) return;
   setVizIsolation(false);

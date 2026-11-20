@@ -97,6 +97,12 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/favicon.ico")
+def favicon():
+    """브라우저 탭은 /favicon.ico 를 따로 요청하고 오래 캐시한다 — 404면 예전·기본 아이콘이 남는다."""
+    return app.send_static_file("favicon.ico")
+
+
 @app.get("/api/health")
 def health():
     client = LinerClient.from_env()
