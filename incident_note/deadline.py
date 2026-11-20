@@ -145,6 +145,9 @@ def compute(case: Case, rules: dict | None = None) -> list[Deadline]:
                 missing = ["personal_data_leak"]
             elif pi == "none":
                 status, why = "비해당", "유출 흔적 없음"
+            elif pi == "suspected" and case.level("personal_data_leak") == "추정":
+                status, why = "검토", f"{_pi_label(pi)}(추정) — 피해 시스템에 개인정보가 실제로 있었는지 확인 후 통지 여부 판단"
+                missing = ["personal_data_leak"]
             else:
                 status, why = "해당", f"{_pi_label(pi)} — 확인/가능성 모두 통지 대상 검토"
 

@@ -161,12 +161,6 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
         push("암호화 확장자·최초 암호화 시각·감염 호스트 수를 기록해 신고서 근거로 남긴다", "사건 책임자", "S4 1~4시간", "조사", 3)
         push("백업에서 복구 가능한 마지막 정상 시점과 무결성 확인(복원 전 검사)", "IT/관리자", "S4 1~4시간", "조사", 3)
 
-    # 핵심 4종 밖의 6개 유형 — 유형 카탈로그의 공통 초동조치를 그대로 얹는다.
-    generic = _generic_category(case)
-    if generic:
-        for i, a in enumerate(generic.first_15min):
-            push(a, _who_for(a), f"10대 유형 {generic.no}", "15분", 2 + i // 3)
-
     # 사실 기반 최우선 행동
     if case.value("transfer_status") in ("done", "pending"):
         push("송금 은행 공식 대표번호로 지급정지·회수(리콜) 요청 — 의심 메일 속 번호는 쓰지 않는다", "재무·대표", "12.1", "0~10분", 1)
@@ -187,6 +181,20 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
         for a in card.get("investigate", []):
             push(a, "IT/관리자", card.get("ref", {}).get("s", [""])[0], "조사", 8)
         # 통지·종결 항목은 문서 초안과 통과표에서 다루므로 '지금 할 일'에는 넣지 않는다.
+
+    # 유형을 고르거나 대화에서 추정되면, 로그가 없어도 그 유형의 공통 초동조치가 바로 나온다.
+    cat = category_mod.get(case.value("category"))
+    if cat:
+        for i, a in enumerate(cat.first_15min):
+            # 우선순위 4 이상 → 사실·로그 기반 행동과 같은 주제면 중복 제거된다(로그가 없을 때는 이 항목들이 맨 위)
+            push(a, _who_for(a), f"10대 유형 {cat.no}", "0~10분" if i < 2 else "15분", 4 + i // 2)
+
+    # 유형을 몰라도 누구나 지금 할 수 있는 기본 행동 — 빈 목록으로 두지 않는다.
+    base = 2 if not cat and not cards else 7
+    push("지금 시각과 발견 경위(누가·언제·무엇을 봤는지)를 기록 — 대화창에 적으면 타임라인에 남습니다",
+         "사건 책임자", "2.1", "0~10분", base)
+    push("이상한 메일·경고창·안내문을 지우거나 끄지 말고 휴대폰으로 촬영해 보존", "발견한 직원", "2.1", "0~10분", base)
+    push("KISA 118(무료·24시간)에 전화 상담 — 무엇부터 할지 함께 확인", "대표·사건 책임자", "14.1", "15분", base + 3)
 
     # 개인정보 판단
     if case.value("personal_data_leak") in ("suspected", "confirmed"):
@@ -220,6 +228,9 @@ _TOPICS = (
     ("경찰",),
     ("안전한", "채널"),
     ("호출",),
+    ("지급", "보류"),
+    ("재부팅",),
+    ("게이트웨이", "분리"),
 )
 
 
@@ -319,6 +330,11 @@ def guardrail(text: str, case: Case, cls: Classification | None = None) -> list[
         if any(k in t for k in ("지불", "보내", "내자", "내야", "협상", "결제", "송금")):
             warn.append("몸값 지불은 권고하지 않습니다. 복호화 보장이 없고, 지불 후에도 데이터가 공개·재판매되며 같은 공격자의 추가 표적이 됩니다. "
                         "대신 백업 오프라인 사본 확인 — 복구 도구(No More Ransom)·KISA 118 상담·신고 기한 산정으로 진행하세요.")
+    ransom_talk = any(k in t for k in ("몸값", "랜섬", "비트코인", "풀어준", "복구해 준", "복호화", "돈 보내라", "돈을 보내라", "돈 주면", "돈을 주면"))
+    pay_talk = any(k in t for k in ("주는 게", "줘야", "주면", "지불", "내야", "낼까", "보낼까", "결제", "송금할까", "협상"))
+    if ransom_talk and pay_talk and not any("몸값 지불은 권고하지" in w for w in warn):
+        warn.append("몸값(돈) 지불은 권고하지 않습니다. 줘도 풀린다는 보장이 없고, 지불한 회사는 다시 표적이 되며, 데이터가 공개·재판매되기도 합니다. "
+                    "대신 ① 백업 장치 분리·확인 ② 복구 도구(No More Ransom) 확인 ③ KISA 118 상담 ④ 신고 기한 확인 순서로 진행하세요.")
     if any(k in t for k in ("피해 없", "괜찮", "문제 없")) and case.value("personal_data_leak") == "unknown":
         warn.append("'피해 없음'이라고 단정할 수 없습니다. 결과가 없다는 것은 '피해 없음'의 증거가 아닙니다(보존 기간·수집 범위 한계).")
     return warn

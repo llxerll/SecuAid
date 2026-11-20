@@ -79,14 +79,14 @@ function setView(v) {
 }
 
 function setBoardTab(n) {
-  const tab = ["1", "2", "3", "4"].includes(String(n)) ? String(n) : "1";
+  const tab = ["1", "2", "3", "4", "5"].includes(String(n)) ? String(n) : "1";
   document.body.dataset.boardTab = tab;
   document.querySelectorAll(".b-tab").forEach((b) => {
     const on = b.dataset.tab === tab;
     b.classList.toggle("is-on", on);
     b.setAttribute("aria-selected", on ? "true" : "false");
   });
-  ["1", "2", "3", "4"].forEach((k) => { $("tab-" + k).hidden = k !== tab; });
+  ["1", "2", "3", "4", "5"].forEach((k) => { $("tab-" + k).hidden = k !== tab; });
 }
 
 function setBusy(on, msg = "") {
@@ -195,6 +195,7 @@ async function sendText(raw, opts = {}) {
   try {
     data = await withSession(() => post(`/api/${S.sid}/message`, { text, defer: true }));
     applyBoard(data.board, { reply: true });
+    if ((data.board.reply || "").includes("[증거 확보]")) setView("5");
   } catch (e) {
     say("system", "오류: " + e.message);
   } finally {
@@ -216,7 +217,7 @@ function applyBoard(b, opts = {}) {
 async function handlePending(pending, text = "") {
   const list = pending || [];
   if (list.includes("law")) startLaw();
-  const fast = list.filter((t) => ["facts", "narrate", "guide"].includes(t));
+  const fast = list.filter((t) => ["facts", "narrate", "guide", "answer"].includes(t));
   if (fast.length) await runEnrich(fast, text);
 }
 
@@ -231,6 +232,10 @@ async function runEnrich(tasks, text = "") {
     wait.remove();
     S.board = data.board; render(data.board);
     if ((data.updated || []).length) say("system", "Liner가 사실을 보탰습니다 · " + data.updated.join(", "));
+    if (data.answer && data.answer.answer) {
+      const refs = (data.answer.references || []).map((r) => r.hostname || r.title).filter(Boolean).slice(0, 3).join(", ");
+      say("liner", data.answer.answer, { src: `Liner Quick Answer · 질문에 대한 답${refs ? " · 출처 " + refs : ""}` });
+    }
     if (data.brief) say("liner", data.brief, { src: `Liner Mark 브리핑 · ${((performance.now() - t0) / 1000).toFixed(1)}초` });
     if (tasks.includes("guide") && (data.board.guide || {}).status === "live") {
       say("liner", data.board.guide.answer, { src: "Liner Quick Answer · 유형별 즉답" });
@@ -472,6 +477,7 @@ async function previewDoc(id) {
     const meta = (S.board.docs || []).find((d) => d.id === id);
     $("modalTitle").textContent = meta ? meta.title : id;
     $("modalTitle").dataset.doc = id;
+    $("modalDownload").classList.remove("hidden"); $("modalDocx").classList.remove("hidden");
     $("modalBody").textContent = await res.text();
     $("modal").classList.remove("hidden");
     $("modalClose").focus();
@@ -581,6 +587,11 @@ function renderChart(b) {
   (b.findings || []).forEach((f) => {
     if (!f.ts || !aware) { cols.pre.find.push(f); return; }
     cols[phaseOfHours((Date.parse(f.ts) - aware) / 3600e3)].find.push(f);
+  });
+  (b.events || []).forEach((e) => {
+    const f = { ts: e.ts, ts_kst: e.ts ? kstShort(Date.parse(e.ts)) : "", summary: "[진술] " + e.what, severity: "info" };
+    if (!e.ts || !aware) { cols.pre.find.push(f); return; }
+    cols[phaseOfHours((Date.parse(e.ts) - aware) / 3600e3)].find.push(f);
   });
   (b.actions || []).forEach((a) => cols[KIND_PHASE[a.kind] ?? 0].act.push(a));
   ((b.deadlines || {}).items || []).forEach((d) => {
@@ -730,9 +741,12 @@ function render(b) {
 
   const nOpen = (b.actions || []).filter((a) => !a.done).length;
   setBadge("badgeTab1", nOpen); setBadge("mBadge1", nOpen);
-  setBadge("badgeTab2", (b.findings || []).length);
+  setBadge("badgeTab2", (b.findings || []).length + (b.events || []).length);
   setBadge("badgeTab3", (b.docs || []).length); setBadge("mBadge3", (b.docs || []).length);
   setBadge("badgeTab4", (b.sources || []).length);
+  const ev = b.evidence || {};
+  setBadge("badgeTab5", ev.have || 0);
+  renderEvidence(b);
   $("phaseLabel").textContent = b.phase ? `${b.phase.window || ""}${b.phase.elapsed_minutes != null ? " · 인지 후 " + elapsed(b.phase.elapsed_minutes) : ""}` : "";
   tick();
   if (!$("vizModal").classList.contains("hidden") && !$("chartNative").hidden) renderChart(b);
@@ -825,11 +839,114 @@ function renderLawBadge() {
 }
 
 function renderTimeline(b) {
-  const rows = (b.findings || []).slice(0, 60);
-  $("timeline").innerHTML = rows.map((f) => `<div class="tl ${f.severity === "critical" ? "crit" : f.severity === "high" ? "high" : ""}">
+  const rows = (b.findings || []).map((f) => ({ ts: f.ts, kst: f.ts_kst, kind: "log", f }))
+    .concat((b.events || []).map((e) => ({ ts: e.ts, kind: "event", e })));
+  rows.sort((x, y) => String(x.ts || "9999").localeCompare(String(y.ts || "9999")));
+  $("timeline").innerHTML = rows.slice(0, 80).map((r) => {
+    if (r.kind === "event") {
+      const e = r.e;
+      const when = e.ts ? kstShort(Date.parse(e.ts)) : "시각 미상";
+      return `<div class="tl ev">
+        <div><div class="t">${esc(when)}</div><div class="u">${esc(e.source || "진술")}</div></div>
+        <div class="tl-ev"><span class="r">진술 · ${esc(e.level || "추정")}</span>${esc(e.what)}
+          <button class="link-btn" type="button" data-del="${esc(e.id)}" aria-label="이 기록 삭제">삭제</button></div>
+      </div>`;
+    }
+    const f = r.f;
+    return `<div class="tl ${f.severity === "critical" ? "crit" : f.severity === "high" ? "high" : ""}">
       <div><div class="t">${f.ts ? esc(f.ts_kst) : "시각 미상"}</div><div class="u">${f.ts ? esc(f.ts.replace("T", " ").slice(0, 16)) + "Z" : "메일 원본 판독"}</div></div>
       <div><span class="r">${esc(f.rule_id)}</span>${esc(f.summary)}</div>
-    </div>`).join("") || `<div class="empty">로그를 붙여넣으면 시간순 사건이 여기에 쌓입니다.</div>`;
+    </div>`;
+  }).join("") || `<div class="empty">로그가 없어도 괜찮습니다. 위 '기억나는 일 추가'에 본 것과 시각을 적거나, 대화창에 "오늘 아침 8시 반에 발견했어요"처럼 말하면 여기에 쌓입니다.</div>`;
+  $("timeline").querySelectorAll("button[data-del]").forEach((btn) => {
+    btn.onclick = async () => {
+      try { const d = await post(`/api/${S.sid}/event/delete`, { id: btn.dataset.del }); S.board = d.board; render(d.board); }
+      catch (e) { say("system", "삭제하지 못했습니다: " + e.message); }
+    };
+  });
+}
+
+/* ---------------------------------------------------------------- 증거 확보 도우미 */
+function renderEvidence(b) {
+  const ev = b.evidence;
+  if (!ev) return;
+  $("evCount").textContent = `확보 ${ev.have} · 못 구함 ${ev.cannot}`;
+  $("evCaveat").textContent = ev.caveat || "";
+  $("evAlways").innerHTML = (ev.always || []).map(evItemHtml).join("");
+  const plats = ev.platforms || [];
+  if (!S.evPlatform || !plats.some((p) => p.id === S.evPlatform)) S.evPlatform = (plats[0] || {}).id;
+  $("evPlatforms").innerHTML = plats.map((p) => `<button type="button" role="tab" class="ev-pf${p.id === S.evPlatform ? " is-on" : ""}${p.recommended ? " rec" : ""}" data-pf="${esc(p.id)}">${esc(p.name.split("(")[0])}${p.recommended ? '<span class="rec-dot" title="이 사건에 맞는 환경"></span>' : ""}</button>`).join("");
+  const p = plats.find((x) => x.id === S.evPlatform);
+  $("evPlatform").innerHTML = p ? `
+    <div class="ev-pf-head"><div><b>${esc(p.name)}</b><span class="hint">할 수 있는 사람: ${esc(p.who)}</span></div>
+      <div class="ev-pf-tools">
+        <button class="btn small" type="button" data-req="${esc(p.id)}">업체에 보낼 요청 메일 초안</button>
+        <button class="btn small" type="button" data-search="${esc(p.id)}" ${S.liner ? "" : "disabled"}>공식 안내 찾기 (Liner)</button>
+      </div></div>
+    <div class="ev-items">${p.items.map(evItemHtml).join("")}</div>
+    <div id="evSearch" class="ev-search"></div>` : "";
+  $("evPlatforms").querySelectorAll("button[data-pf]").forEach((x) => { x.onclick = () => { S.evPlatform = x.dataset.pf; renderEvidence(S.board); }; });
+  document.querySelectorAll("#tab-5 button[data-ev]").forEach((x) => { x.onclick = () => setEvidence(x.dataset.ev, x.dataset.st); });
+  const rq = document.querySelector("#tab-5 button[data-req]"); if (rq) rq.onclick = () => showRequestLetter(rq.dataset.req);
+  const sr = document.querySelector("#tab-5 button[data-search]"); if (sr) sr.onclick = () => searchOfficial(sr.dataset.search);
+}
+
+function evItemHtml(i) {
+  const st = i.status || "";
+  return `<details class="ev-item ${st}"${st ? "" : " open"}>
+    <summary><span class="ev-title">${esc(i.title)}</span>
+      <span class="ev-state">${st === "have" ? "확보함" : st === "cannot" ? "못 구함" : ""}</span></summary>
+    <p class="ev-why">${esc(i.why)}</p>
+    ${(i.how || []).length ? `<ol class="ev-how">${i.how.map((h) => `<li>${esc(h)}</li>`).join("")}</ol>` : ""}
+    ${i.retention ? `<p class="ev-ret">보관 기간: ${esc(i.retention)}</p>` : ""}
+    ${i.fallback ? `<p class="ev-fb">못 구하면: ${esc(i.fallback)}</p>` : ""}
+    <div class="ev-btns">
+      <button class="btn small${st === "have" ? " dark" : ""}" type="button" data-ev="${esc(i.id)}" data-st="${st === "have" ? "" : "have"}">확보함</button>
+      <button class="btn small${st === "cannot" ? " dark" : ""}" type="button" data-ev="${esc(i.id)}" data-st="${st === "cannot" ? "" : "cannot"}">못 구함</button>
+    </div>
+  </details>`;
+}
+
+async function setEvidence(item, status) {
+  try { const d = await post(`/api/${S.sid}/evidence`, { item, status }); S.board = d.board; render(d.board); }
+  catch (e) { say("system", "저장하지 못했습니다: " + e.message); }
+}
+
+async function showRequestLetter(platform) {
+  try {
+    const d = await api(`/api/${S.sid}/evidence/request`, { platform });
+    const l = d.letter;
+    $("modalTitle").textContent = "업체에 보낼 로그 보존·제공 요청 (초안)";
+    $("modalTitle").dataset.doc = "";
+    $("modalBody").textContent = `받는 곳: ${l.to}\n제목: ${l.subject}\n\n${l.body}\n※ ${l.note}`;
+    $("modalDownload").classList.add("hidden"); $("modalDocx").classList.add("hidden");
+    $("modal").classList.remove("hidden");
+  } catch (e) { say("system", "초안을 만들지 못했습니다: " + e.message); }
+}
+
+async function searchOfficial(platform) {
+  const box = document.querySelector("#evSearch");
+  box.innerHTML = `<div class="hint"><span class="spin" aria-hidden="true"></span> Liner Search로 공식 안내를 찾는 중…</div>`;
+  linerJob(+1);
+  try {
+    const d = await api(`/api/${S.sid}/evidence/search`, { platform });
+    box.innerHTML = (d.results || []).length
+      ? `<div class="lbl">Liner Search · ${esc(d.query)}</div>` + d.results.map((r) => `<div class="source"><a href="${esc(r.url)}" target="_blank" rel="noreferrer">${esc(r.title || r.url)}</a><div class="host">${esc(r.hostname || "")}</div></div>`).join("")
+      : `<div class="hint">${esc(d.error || "찾은 안내가 없습니다. 업체 고객센터에 요청 메일을 보내세요.")}</div>`;
+  } catch (e) { box.innerHTML = `<div class="hint">검색 실패: ${esc(e.message)}</div>`; }
+  finally { linerJob(-1); }
+}
+
+async function addEvent(e) {
+  e.preventDefault();
+  const what = $("evWhat").value.trim();
+  if (!what) { $("evWhat").focus(); return; }
+  try {
+    const d = await withSession(() => post(`/api/${S.sid}/event`, { when: $("evWhen").value.trim(), what, discovery: $("evDiscovery").checked }));
+    $("evWhat").value = ""; $("evWhen").value = ""; $("evDiscovery").checked = false;
+    setStage("case");
+    S.board = d.board; render(d.board);
+  } catch (err) { say("system", "기록하지 못했습니다: " + err.message); }
 }
 
 function renderVerdict(b) {
@@ -842,7 +959,8 @@ function renderVerdict(b) {
     <span class="big">${esc(c.label || "판별 전")}</span>
     ${cat ? `<span class="meta">10대 유형 ${cat.no}. ${esc(cat.name)}</span>` : ""}
     ${(c.basis || []).length ? `<ul>${c.basis.slice(0, 5).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-    ${(c.missing || []).length ? `<span class="meta">모르는 것 · ${esc(c.missing.join(", "))}</span>` : ""}
+    ${(c.missing || []).length ? `<span class="meta">모르는 것 · ${esc(c.missing.join(", "))}</span>
+      <button class="btn small ev-open" type="button" onclick="setView('5')">로그를 못 구하겠다면 → 증거 확보 도우미</button>` : ""}
     <span class="sevline">심각도 <b>${esc(sev.level || "-")} ${esc(sev.name || "")}</b> — ${esc((sev.reasons || [])[0] || "")}</span>
     <span class="meta">경영진 보고 주기 ${esc(sev.next_report || "-")}</span>`;
 }
@@ -1010,6 +1128,7 @@ const closeModals = () => { $("modal").classList.add("hidden"); $("vizModal").cl
 $("modalClose").onclick = closeModals;
 $("vizClose").onclick = closeModals;
 $("chartBtn").onclick = showViz;
+$("eventForm").addEventListener("submit", addEvent);
 $("vizTabNative").onclick = () => setVizTab("native");
 $("vizTabLiner").onclick = () => { setVizTab("liner"); if (S.viz) openViz(); };
 $("vizGenerate").onclick = generateLinerViz;

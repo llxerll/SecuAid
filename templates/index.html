@@ -121,7 +121,7 @@
         <div class="composer">
           <div class="quick-chips" id="quickChips" aria-label="빠른 질문">
             <button class="quick" type="button" data-q="신고해야 하나요? 기한이 언제인가요?">신고해야 하나요?</button>
-            <button class="quick" type="button" data-q="이미 송금했대요.">이미 송금했대요</button>
+            <button class="quick" type="button" data-q="로그가 뭔지 모르겠어요. 어디서 확인하나요?">로그를 못 구하겠어요</button>
             <button class="quick" type="button" data-q="통지문과 신고서 초안을 만들어줘">문서 초안 만들기</button>
           </div>
           <label for="input" class="lbl">상황을 말하거나 로그를 붙여넣으세요 <span class="kbd">Ctrl/⌘+Enter</span></label>
@@ -144,6 +144,7 @@
         <nav class="b-tabs" role="tablist" aria-label="보드 보기">
           <button class="b-tab is-on" data-tab="1" role="tab" aria-selected="true" type="button">지금 할 일 <span class="tab-badge" id="badgeTab1">0</span></button>
           <button class="b-tab" data-tab="2" role="tab" aria-selected="false" type="button">타임라인 <span class="tab-badge" id="badgeTab2">0</span></button>
+          <button class="b-tab" data-tab="5" role="tab" aria-selected="false" type="button">증거 확보 <span class="tab-badge" id="badgeTab5">0</span></button>
           <button class="b-tab" data-tab="3" role="tab" aria-selected="false" type="button">문서 <span class="tab-badge" id="badgeTab3">0</span></button>
           <button class="b-tab" data-tab="4" role="tab" aria-selected="false" type="button">근거·차트 <span class="tab-badge" id="badgeTab4">0</span></button>
         </nav>
@@ -159,9 +160,43 @@
         </div>
 
         <div class="tab-pane" id="tab-2" role="tabpanel" hidden>
+          <div class="card">
+            <div class="card-head"><h2>기억나는 일 추가</h2><span class="hint">로그가 없어도 됩니다 — 본 것과 시각만 적으세요</span></div>
+            <form id="eventForm" class="event-form">
+              <label class="lbl" for="evWhen">언제</label>
+              <input id="evWhen" type="text" placeholder="예) 오늘 아침 8시 반 · 어제 저녁 7시 · 2026-11-20 08:30" autocomplete="off" />
+              <label class="lbl" for="evWhat">무슨 일</label>
+              <input id="evWhat" type="text" placeholder="예) 거래처에서 계좌 변경 메일을 받았다고 전화 옴" autocomplete="off" />
+              <div class="event-actions">
+                <label class="check"><input id="evDiscovery" type="checkbox" /> 이때 처음 알았어요(인지 시각)</label>
+                <span class="spacer"></span>
+                <button id="evAdd" class="btn dark" type="submit">타임라인에 추가</button>
+              </div>
+            </form>
+          </div>
           <div class="card list-card">
-            <div class="card-head"><h2>타임라인</h2><span class="hint">KST · UTC 원본 병기</span></div>
+            <div class="card-head"><h2>타임라인</h2><span class="hint">로그 탐지 + 담당자 진술 · KST</span></div>
             <div id="timeline" class="timeline"></div>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="tab-5" role="tabpanel" hidden>
+          <div class="card">
+            <div class="card-head ev-head">
+              <div>
+                <h2>증거 확보 도우미</h2>
+                <p class="hint" id="evPrinciple">못 구해도 대응은 계속됩니다. 확보한 것과 못 구한 것을 표시하면 신고서에 '파악된 범위'로 들어갑니다.</p>
+              </div>
+              <span class="hint" id="evCount"></span>
+            </div>
+            <div class="pad">
+              <div class="lbl">누구나 지금 할 수 있는 것</div>
+              <div id="evAlways" class="ev-items"></div>
+              <div class="lbl" style="margin-top:14px">사용하는 환경을 고르세요</div>
+              <div id="evPlatforms" class="ev-platforms" role="tablist" aria-label="사용 환경"></div>
+              <div id="evPlatform" class="ev-platform"></div>
+              <p class="hint" id="evCaveat"></p>
+            </div>
           </div>
         </div>
 
