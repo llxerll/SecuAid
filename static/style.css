@@ -487,6 +487,21 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
     background: linear-gradient(135deg, rgba(37, 99, 235, .55), rgba(56, 189, 248, .25));
   }
 
+  /* 툴바·예시 칩·첨부를 한 줄 가로 스크롤로 압축 — 본문이 첫 화면에 들어오게 */
+  .toolbar {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    padding: 7px 12px; gap: 6px; scrollbar-width: none;
+  }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .toolbar .lbl, .toolbar .api-info { display: none; }
+  .toolbar select { min-width: 0; flex: 1 1 150px; font-size: 13px; }
+  .toolbar .btn { flex: 0 0 auto; padding: 8px 11px; font-size: 12px; }
+  .quick-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .quick-chips::-webkit-scrollbar { display: none; }
+  .quick { flex: 0 0 auto; }
+  .attach-row { flex-wrap: nowrap; }
+  .attach-row .hint { display: none; }
+
   .workspace { grid-template-columns: minmax(0, 1fr); padding: 10px 12px 6px; gap: 10px; }
   .chat-panel { position: static; max-height: none; }
   .chat { flex: 0 0 auto; height: min(46vh, 380px); min-height: 210px; }
@@ -498,6 +513,14 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
 
   body[data-view="chat"] .board-panel { display: none; }
   body[data-view="board"] .chat-panel { display: none; }
+  body[data-view="chat"] .chat-panel { padding-bottom: 104px; }
+  body[data-view="chat"] .composer {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    background: rgba(9, 15, 27, .97); border-top: 1px solid var(--line-soft);
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -10px 26px rgba(0, 0, 0, .4);
+  }
+  body[data-view="chat"] .composer textarea { height: 48px; min-height: 48px; }
 
   .panel-head { margin-top: 10px; }
   .actions li { grid-template-columns: 24px minmax(0, 1fr); }
@@ -512,11 +535,8 @@ select:focus-visible, textarea:focus-visible, .btn:focus-visible, .b-tab:focus-v
 }
 
 @media (max-width: 640px) {
-  .toolbar { padding: 8px 12px; gap: 7px; }
-  .toolbar .lbl { width: 100%; }
-  select { min-width: 0; width: 100%; font-size: 16px; }
-  .toolbar #replay { flex: 1 1 100%; }
-  .toolbar #runScenario, .toolbar #newCase { flex: 1 1 30%; }
+  select { min-width: 0; width: auto; font-size: 16px; }
+  .toolbar select { font-size: 13px; }
   .api-info { display: none; }
   #modePill { display: none; }          /* Liner 상태는 데스크톱·태블릿에서 확인 */
   .btn, .doc button, .cat-chip, .m-tab { min-height: 40px; }
