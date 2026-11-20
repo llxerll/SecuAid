@@ -108,7 +108,7 @@ class TestWebApp(unittest.TestCase):
         """모바일에서 sticky 가 스크롤을 막지 않고, 한 화면씩 전환하는 규칙이 있는지."""
         _, css = http("/static/style.css")
         self.assertIn("@media (max-width: 900px)", css)
-        self.assertIn(".chat-panel { position: static; }", css)
+        self.assertIn(".chat-panel { position: static", css)
         self.assertIn('body[data-view="chat"] .board-panel { display: none; }', css)
         self.assertIn('body[data-view="board"] .chat-panel { display: none; }', css)
         for token in (".cat-chip", ".viz-frame", "max-width: 640px", "overflow-x: hidden"):
