@@ -895,7 +895,10 @@ class Agent:
         if itype is None or itype == "unknown":
             if not cat:
                 q.append("어떤 일이 있었나요? 화면·메일·전화로 본 것을 그대로 적어 주세요(위 10개 유형 중 골라도 됩니다)")
-        if mail_like and self.case.value("transfer_status") == "unknown" and cat in ("", "CAT01_BEC_ACCOUNT_CHANGE", "CAT03_LOOKALIKE_SPOOF"):
+        money_talk = any(k in " ".join(h.get("text", "") for h in self.case.history if h.get("kind") == "user")
+                         for k in ("계좌", "송금", "입금", "이체", "대금", "거래처", "돈"))
+        if mail_like and self.case.value("transfer_status") == "unknown" and (
+                cat in ("CAT01_BEC_ACCOUNT_CHANGE", "CAT03_LOOKALIKE_SPOOF") or (not cat and money_talk)):
             q.append("거래처나 우리 쪽에서 실제로 돈이 나갔나요(송금 완료/예정/없음)?")
         if itype == "ransom" or cat == "CAT04_RANSOMWARE":
             if self.case.value("backup_status") in (None, "unknown"):

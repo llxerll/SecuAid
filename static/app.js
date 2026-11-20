@@ -174,7 +174,7 @@ function hasCase(b) {
 }
 
 async function newSession() {
-  S.state = null; S.viz = null;
+  S.state = null; S.viz = null; S.evPicked = false; S.evPlatform = null;
   try { sessionStorage.removeItem(STORE_KEY); } catch (e) { /* noop */ }
   const data = await api("/api/session", {});
   S.sid = data.session; S.board = data.board;
@@ -874,7 +874,8 @@ function renderEvidence(b) {
   $("evCaveat").textContent = ev.caveat || "";
   $("evAlways").innerHTML = (ev.always || []).map(evItemHtml).join("");
   const plats = ev.platforms || [];
-  if (!S.evPlatform || !plats.some((p) => p.id === S.evPlatform)) S.evPlatform = (plats[0] || {}).id;
+  // 사용자가 직접 고르기 전에는 사건에 맞는 추천 환경(맨 앞)을 따라간다
+  if (!S.evPicked || !plats.some((p) => p.id === S.evPlatform)) S.evPlatform = (plats[0] || {}).id;
   $("evPlatforms").innerHTML = plats.map((p) => `<button type="button" role="tab" class="ev-pf${p.id === S.evPlatform ? " is-on" : ""}${p.recommended ? " rec" : ""}" data-pf="${esc(p.id)}">${esc(p.name.split("(")[0])}${p.recommended ? '<span class="rec-dot" title="이 사건에 맞는 환경"></span>' : ""}</button>`).join("");
   const p = plats.find((x) => x.id === S.evPlatform);
   $("evPlatform").innerHTML = p ? `
@@ -885,7 +886,7 @@ function renderEvidence(b) {
       </div></div>
     <div class="ev-items">${p.items.map(evItemHtml).join("")}</div>
     <div id="evSearch" class="ev-search"></div>` : "";
-  $("evPlatforms").querySelectorAll("button[data-pf]").forEach((x) => { x.onclick = () => { S.evPlatform = x.dataset.pf; renderEvidence(S.board); }; });
+  $("evPlatforms").querySelectorAll("button[data-pf]").forEach((x) => { x.onclick = () => { S.evPlatform = x.dataset.pf; S.evPicked = true; renderEvidence(S.board); }; });
   document.querySelectorAll("#tab-5 button[data-ev]").forEach((x) => { x.onclick = () => setEvidence(x.dataset.ev, x.dataset.st); });
   const rq = document.querySelector("#tab-5 button[data-req]"); if (rq) rq.onclick = () => showRequestLetter(rq.dataset.req);
   const sr = document.querySelector("#tab-5 button[data-search]"); if (sr) sr.onclick = () => searchOfficial(sr.dataset.search);
