@@ -467,13 +467,28 @@ def _ransom_report(case: Case, det: DetectionResult, cls: Classification,
 
 
 def _timeline(case: Case, det: DetectionResult) -> Document:
-    rows = ["시각(KST) | 원본(UTC) | 구분 | 내용 | 근거수준", "-" * 70]
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    from . import evidence as evidence_mod
+
+    entries = []  # (정렬키, 행)
     for f in det.ordered():
-        rows.append(f"{kst_label(f.ts)} | {utc_label(f.ts)} | {f.rule_id} | {f.summary} | {f.evidence}")
+        entries.append((f.ts.isoformat() if f.ts else "9999",
+                        f"{kst_label(f.ts)} | {utc_label(f.ts)} | {f.rule_id} | {f.summary} | {f.evidence}"))
+    for e in case.events or []:
+        ts = _dt.fromisoformat(e["ts"]).astimezone(_tz.utc) if e.get("ts") else None
+        entries.append((e.get("ts") or "9999",
+                        f"{kst_label(ts) if ts else '시각 미상'} | - | 진술 | {e['what']} | {e.get('level', '추정')}({e.get('source', '사용자 진술')})"))
     if case.aware_at:
-        rows.append(f"{kst_label(case.aware_at)} | - | 인지 | {case.fact('aware_at').source} | 확인")
+        entries.append((case.aware_at.isoformat(),
+                        f"{kst_label(case.aware_at)} | - | 인지 | {case.fact('aware_at').source} | {case.fact('aware_at').level}"))
+    entries.sort(key=lambda x: x[0])
+    rows = ["시각(KST) | 원본(UTC) | 구분 | 내용 | 근거수준", "-" * 70] + [r for _, r in entries]
     body = _header("사고 타임라인", case, "내부 기록·보고용") + "\n".join(rows)
-    body += "\n\n※ 원본 로그의 UTC 값을 유지하고 KST를 병기했습니다(플레이북 5.3)."
+    have, cannot = evidence_mod.status_lines(case)
+    body += "\n\n■ 증거 확보 현황\n- 확보: " + (", ".join(have) or "없음(기록 전)") + "\n- 못 구함: " + (", ".join(cannot) or "없음")
+    body += "\n\n※ 원본 로그의 UTC 값을 유지하고 KST를 병기했습니다(플레이북 5.3). '진술'은 담당자가 말하거나 적은 내용으로, 로그로 확인되기 전까지 근거 수준을 그대로 표시합니다."
     return Document("tpl_timeline", "사고 타임라인", "timeline", body, [], [], [], "내부")
 
 

@@ -72,7 +72,7 @@ class TestWebApp(unittest.TestCase):
         self.assertIn('data-stage="start"', body)
         self.assertIn('id="startView"', body)                    # 첫 화면
         self.assertIn('id="clock"', body)                        # 72시간 시계
-        self.assertEqual(body.count('<button class="b-tab'), 4)   # 할 일 · 타임라인 · 문서 · 근거
+        self.assertEqual(body.count('<button class="b-tab'), 5)   # 할 일 · 타임라인 · 증거 확보 · 문서 · 근거
         self.assertIn('id="chartNative"', body)                  # 앱이 그리는 72시간 대응 차트
         self.assertEqual(body.count('<button class="m-tab'), 4)         # 모바일 하단 4탭
         self.assertIn('data-tab="side"', body)
@@ -196,6 +196,27 @@ class TestWebApp(unittest.TestCase):
         status, body = http(f"/api/{sid}/download/zip", "POST", {}, raw=True)
         self.assertEqual(status, 200)
         self.assertTrue(body.startswith(b"PK"))
+
+    def test_no_logs_path_over_http(self):
+        """로그 없는 작은 회사: 진술 타임라인 · 증거 확보 상태 · 업체 요청 메일 · 공식 안내 검색(키 없음)."""
+        d = http_json("/api/session", "POST", {})
+        sid, state = d["session"], d["state"]
+        d = http_json(f"/api/{sid}/message", "POST", {"text": "저희는 가비아 메일 써요. 오늘 오전 10시쯤 거래처 전화 받았어요", "defer": True, "state": state})
+        state = d["state"]
+        self.assertEqual(d["board"]["evidence"]["platforms"][0]["id"], "kr_mail")
+        d = http_json(f"/api/{sid}/event", "POST", {"when": "어제 오후 4시 40분", "what": "거래처에 계좌 변경 메일이 나감", "state": state})
+        state = d["state"]
+        self.assertTrue(any(e["what"] == "거래처에 계좌 변경 메일이 나감" and e["ts"] for e in d["board"]["events"]))
+        ev_id = next(e["id"] for e in d["board"]["events"] if e["what"].startswith("거래처에 계좌"))
+        d = http_json(f"/api/{sid}/evidence", "POST", {"item": "KR_LOGIN", "status": "cannot", "state": state})
+        state = d["state"]
+        self.assertEqual(d["board"]["evidence"]["cannot"], 1)
+        letter = http_json(f"/api/{sid}/evidence/request", "POST", {"platform": "kr_mail", "state": state})["letter"]
+        self.assertIn("로그 보존", letter["subject"])
+        res = http_json(f"/api/{sid}/evidence/search", "POST", {"platform": "kr_mail", "state": state})
+        self.assertEqual(res["results"], [])          # 키 없음 → 빈 결과 + 안내
+        d = http_json(f"/api/{sid}/event/delete", "POST", {"id": ev_id, "state": state})
+        self.assertFalse(any(e["id"] == ev_id for e in d["board"]["events"]))
 
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:

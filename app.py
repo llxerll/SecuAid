@@ -201,6 +201,100 @@ def law_merge(sid: str):
     return _ok(agent, {"board": agent.board()})
 
 
+# --------------------------------------------------------------------------- 로그 없이도: 진술 타임라인 · 증거 확보 도우미
+@app.post("/api/<sid>/event")
+def add_event(sid: str):
+    """'기억나는 일' 한 줄을 타임라인에 — 시각은 '2026-11-20 08:30' 또는 '오늘 아침 8시 반' 모두 받는다."""
+    from incident_note import nlu
+    from incident_note.timeutil import parse_kst_local
+
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    what = str(body.get("what") or "").strip()[:200]
+    if not what:
+        return jsonify({"error": "무슨 일이 있었는지 적어 주세요."}), 400
+    raw = str(body.get("when") or "").strip()
+    when = None
+    if raw:
+        try:
+            when = parse_kst_local(raw.replace("T", " "))
+        except Exception:  # noqa: BLE001 - 구어체 시각
+            when = nlu.parse_time(raw)
+    level = body.get("level") if body.get("level") in ("확인", "추정") else "확인"
+    agent.add_event(when, what, level, "사용자 기록")
+    if body.get("discovery") and when:
+        agent.case.set_aware_at(when, source="사용자 기록(발견 시각)", level=level)
+    agent._recompute()
+    return _ok(agent, {"board": agent.board()})
+
+
+@app.post("/api/<sid>/event/delete")
+def delete_event(sid: str):
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    agent.remove_event(str(body.get("id") or ""))
+    agent._recompute()
+    return _ok(agent, {"board": agent.board()})
+
+
+@app.post("/api/<sid>/evidence")
+def set_evidence(sid: str):
+    from incident_note import evidence as evidence_mod
+
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    if not evidence_mod.set_status(agent.case, str(body.get("item") or ""), str(body.get("status") or "")):
+        return jsonify({"error": "알 수 없는 항목입니다."}), 400
+    agent._recompute()
+    return _ok(agent, {"board": agent.board()})
+
+
+@app.post("/api/<sid>/evidence/request")
+def evidence_request(sid: str):
+    """호스팅·IT 업체에 보낼 '로그 보존·제공 요청' 초안 — 상태를 바꾸지 않는다."""
+    from incident_note import evidence as evidence_mod
+
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    try:
+        return jsonify({"letter": evidence_mod.request_letter(agent.case, str(body.get("platform") or ""))})
+    except KeyError:
+        return jsonify({"error": "알 수 없는 사용 환경입니다."}), 400
+
+
+@app.post("/api/<sid>/evidence/search")
+def evidence_search(sid: str):
+    """Liner Search로 해당 업체의 공식 안내(로그 확인 방법)를 찾는다 — 상태를 바꾸지 않는다."""
+    from incident_note import evidence as evidence_mod
+    from incident_note.liner import LinerError
+
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    g = evidence_mod.load_guide()["platforms"].get(str(body.get("platform") or ""))
+    if not g:
+        return jsonify({"error": "알 수 없는 사용 환경입니다."}), 400
+    item = str(body.get("item") or "")
+    item_title = next((i["title"] for i in g["items"] if i["id"] == item), "로그인 기록·접속 기록")
+    query = f"{g['name'].split('(')[0]} {item_title} 확인 방법"
+    if not agent.client.available:
+        return jsonify({"results": [], "query": query, "error": "Liner 키가 없어 검색할 수 없습니다."})
+    try:
+        results = agent.client.search_web(query, max_results=5)
+    except LinerError as exc:
+        return jsonify({"results": [], "query": query, "error": str(exc)[:160]})
+    return jsonify({"results": results, "query": query})
+
+
 @app.post("/api/<sid>/action")
 def toggle_action(sid: str):
     """지금 할 일 체크/해제 — 완료 시각이 신고서 '현재까지의 대응'에 들어간다."""

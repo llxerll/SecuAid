@@ -37,6 +37,7 @@ DEFAULT_FACTS: dict[str, Any] = {
     "aware_at": None,
     "report_channel": None,
     # v0.5 — 10대 유형 선택 · 랜섬웨어 전용 사실
+    "platform": None,                 # 사용 환경: m365 | google | kr_mail | windows | nas | web_hosting (목록)
     "category": None,                 # CAT01_... ~ CAT10_...
     "category_label": None,
     "category_severity": None,        # 유형 기본 심각도(P1~P4)
@@ -73,6 +74,7 @@ FACT_LABEL = {
     "pi_data_types": "유출 가능 개인정보 항목",
     "aware_at": "인지 시각",
     "report_channel": "신고 창구",
+    "platform": "사용 환경",
     "category": "10대 사고 유형",
     "category_label": "10대 사고 유형명",
     "category_severity": "유형 기본 심각도",
@@ -104,6 +106,12 @@ VALUE_LABEL = {
 }
 
 
+PLATFORM_LABEL = {
+    "m365": "Microsoft 365(아웃룩)", "google": "Google Workspace(지메일)", "kr_mail": "국내 호스팅·그룹웨어 메일",
+    "windows": "Windows PC", "nas": "NAS·파일 서버", "web_hosting": "쇼핑몰·웹 호스팅",
+}
+
+
 def display_value(key: str, val: Any) -> Any:
     """사실 값을 사람이 읽는 문장으로 바꾼다(판단 로직은 원래 값을 그대로 쓴다)."""
     if isinstance(val, datetime):
@@ -113,6 +121,8 @@ def display_value(key: str, val: Any) -> Any:
     if key in VALUE_LABEL and isinstance(val, str):
         return VALUE_LABEL[key].get(val, val)
     if isinstance(val, (list, tuple, set)):
+        if key == "platform":
+            return ", ".join(PLATFORM_LABEL.get(str(v), str(v)) for v in val)
         return ", ".join(str(v) for v in val)
     if key == "affected_count" and isinstance(val, int):
         return f"{val:,}명"
@@ -154,6 +164,8 @@ class Case:
     history: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     done: dict[str, dict] = field(default_factory=dict)      # 지금 할 일 체크리스트: key → {action, at}
+    events: list[dict] = field(default_factory=list)         # 사용자 진술 타임라인: {id, ts, what, level, source}
+    evidence: dict[str, str] = field(default_factory=dict)   # 증거 확보 체크: item_id → have | cannot
 
     def __post_init__(self) -> None:
         for k, v in DEFAULT_FACTS.items():
@@ -183,12 +195,12 @@ class Case:
         return self.level(key) in ("확인", "추정") and self.value(key) not in (None, "", [], "unknown")
 
     # ---------------------------------------------------------------- 인지 시각
-    def set_aware_at(self, value: str | datetime, source: str = "사용자 진술") -> None:
+    def set_aware_at(self, value: str | datetime, source: str = "사용자 진술", level: str = "확인") -> None:
         if isinstance(value, datetime):
             dt = value
         else:
             dt = parse_kst_local(value)
-        self.set_fact("aware_at", dt, "확인", source)
+        self.set_fact("aware_at", dt, level, source)
 
     @property
     def aware_at(self) -> datetime | None:
@@ -235,8 +247,8 @@ class Case:
     def facts_view(self) -> list[dict]:
         out = []
         for k, f in self.facts.items():
-            if f.value in (None, "", [], "unknown"):
-                continue
+            if f.value in (None, "", [], "unknown") or k == "category":
+                continue  # 유형 id 는 '10대 사고 유형명'으로 보여 준다
             val = f.value
             out.append({"key": k, "label": FACT_LABEL.get(k, k), "value": display_value(k, val),
                         "raw": val if not isinstance(val, datetime) else val.isoformat(),
