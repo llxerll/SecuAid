@@ -20,7 +20,6 @@ import hashlib
 import json
 import os
 import time
-import uuid
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -89,7 +88,7 @@ class LinerClient:
         return bool(self.api_key) and not self.offline
 
     def _log_call(self, name: str, ok: bool, ms: int, detail: str = "") -> None:
-        self.calls.append({"id": uuid.uuid4().hex[:10], "api": name, "ok": ok, "ms": ms, "detail": detail[:300]})
+        self.calls.append({"api": name, "ok": ok, "ms": ms, "detail": detail[:300]})
 
     def _post(self, path: str, payload: dict, *, auth: str = "bearer", api_name: str = "",
               timeout: int | None = None, retries: int | None = None) -> dict:

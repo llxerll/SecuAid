@@ -278,30 +278,13 @@ class TestWebApp(unittest.TestCase):
         self.assertTrue(b["actions"][0]["done"])
 
     def test_liner_panel_in_html(self):
-        """v0.13 — [Liner 연동]을 누르면 API 5종 설명·호출 기록 창."""
+        """v0.13 — [Liner 연동]을 누르면 API 5종 설명 창."""
         _, html = http("/")
         self.assertIn('<button id="modePill"', html)
-        for el in ('id="linerModal"', 'id="linerLog"', 'id="linerStatus"', "/chat/completions", "/agents/quick-answer",
+        self.assertNotIn('id="linerLog"', html)         # 호출 기록 표는 두지 않는다
+        for el in ('id="linerModal"', 'id="linerStatus"', "/chat/completions", "/agents/quick-answer",
                    "/agents/search", "/tools/search/web", "/tools/visualization", "liner-mark-1.3"):
             self.assertIn(el, html)
-
-    def test_response_carries_liner_calls(self):
-        """이번 요청에서 일어난 Liner 호출이 응답의 liner_calls 로 붙는다(화면의 호출 기록)."""
-        c = app_module.app.test_client()
-        sid = c.post("/api/session", json={}).get_json()["session"]
-        agent = app_module.SESSIONS[sid]
-        agent.client.api_key, agent.client.offline = "test", False
-
-        def fake_post(path, payload, **kw):
-            agent.client._log_call(kw.get("api_name", path), True, 1234)
-            return {"answer": "은행 대표번호로 전화하세요.", "references": []}
-        agent.client._post = fake_post
-        data = c.post(f"/api/{sid}/howto", json={"action": "암호화 범위 확인"}).get_json()
-        call = data["liner_calls"][0]
-        self.assertEqual((call["api"], call["ok"], call["ms"], len(data["liner_calls"])), ("quick_answer", True, 1234, 1))
-        self.assertTrue(call["id"])                     # 동시 요청이 같은 호출을 보고해도 화면이 id로 한 번만 센다
-        data = c.post(f"/api/{sid}/board", json={}).get_json()
-        self.assertNotIn("liner_calls", data)          # 호출이 없던 요청에는 붙지 않는다
 
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
