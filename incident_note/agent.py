@@ -177,6 +177,7 @@ class Agent:
         if not text:
             return self.board(reply="무엇을 확인할까요? 사건 설명, 로그 붙여넣기, 메일 원본 중 하나로 시작할 수 있습니다.")
         warnings = playbook.guardrail(text, self.case, self.cls)
+        started_now = not self.case.aware_at
         self.case.log("user", text[:500])
 
         kind = ingest.sniff(text)
@@ -211,6 +212,8 @@ class Agent:
                         self.case.set_fact("incident_type", cat.incident_type, "추정", f"유형 추정({cat.name})")
                     actions_taken.append(f"10대 유형 연결: {cat.no}. {cat.name}")
 
+        if started_now and not self.case.aware_at:
+            self.ensure_aware()     # 72시간 시계는 사건이 시작되는 순간부터 돈다(나중에 실제 시각으로 고칠 수 있음)
         intent = self._intent(text, kind)
         need_law = intent == "law" or (self.det.findings and not self.case.law_checks and intent == "logs")
         if need_law:
@@ -293,7 +296,7 @@ class Agent:
                     updated.append(f"인지 시각 {kst_label(self.case.aware_at)}[{level}]")
                     auto_aware = False
             if not self.case.aware_at and any(k in text for k in ("방금", "오늘", "지금", "전화가 왔", "전화 왔", "발견", "알았", "출근")):
-                self.case.set_aware_at(now_utc(), source="대화 중 인지(현재 시각 사용 — 실제로 안 시각을 알려 주세요)", level="추정")
+                self.case.set_aware_at(now_utc(), source="대화 중 인지(사건 시작 시각 — 실제로 안 시각으로 바꿀 수 있어요)", level="추정")
                 updated.append(f"인지 시각 {kst_label(self.case.aware_at)}[추정]")
 
         # 사용 환경(메일·PC·NAS·쇼핑몰) — 증거 확보 도우미가 이 순서로 안내한다
@@ -373,6 +376,8 @@ class Agent:
                 changes["backup_isolated"] = (True, level)
             elif any(k in text for k in ("같은 랙", "같은 망", "연결", "온라인", "공유 폴더", "같은 서버")):
                 changes["backup_status"] = ("at_risk", level)
+        if re.search(r"백업\S{0,2}\s*(은|이)?\s*(전혀\s*)?(없어요|없습니다|없음|안 해|하지 않)", text):
+            changes["backup_status"] = ("none", level)
         m = re.search(r"(\d+(?:\.\d+)?)\s*(비트코인|BTC|btc|달러|USD)", text)
         if m:
             changes["ransom_amount"] = (f"{m.group(1)} {m.group(2).upper()}", level)
@@ -389,8 +394,14 @@ class Agent:
                     pass
 
         # 제공자 여부
-        if re.search(r"(홈페이지|자사 서비스|고객 문의|쇼핑몰|온라인몰|인터넷 쇼핑|웹사이트|앱|회원제|온라인 서비스|예약 사이트).{0,20}(운영|제공|있|해요|합니다)", text):
+        svc = re.search(r"(홈페이지|자사 서비스|고객 문의|쇼핑몰|온라인몰|인터넷 쇼핑|웹사이트|앱|회원제|온라인 서비스|예약 사이트).{0,20}(운영|제공|있|해요|합니다)", text)
+        if svc and re.search(r"(않아|않습|안 해|안 합|없어|없습)", text[svc.start():svc.end() + 12]):
+            changes["is_ict_service_provider"] = (False, level)
+        elif svc:
             changes["is_ict_service_provider"] = (True, level)
+        dm = re.search(r"@?((?:[a-z0-9-]+\.)+[a-z]{2,})", text.lower()) if "도메인" in text or "@" in text else None
+        if dm and not self.case.value("org_domains"):
+            changes["org_domains"] = ([dm.group(1)], "확인")
         if "정보통신서비스 제공자" in text:
             changes["is_ict_service_provider"] = ("아니" not in text, level)
 
@@ -713,6 +724,26 @@ class Agent:
                 "first_15min": cat.first_15min, "dont_do": cat.dont_do,
                 "deadline_focus": cat.deadline_focus, "why_severity": cat.why_severity}
 
+    def ensure_aware(self) -> None:
+        """인지 시각이 없으면 '지금'을 추정값으로 기록해 시계를 시작한다."""
+        if not self.case.aware_at:
+            self.case.set_aware_at(now_utc(), source="대화 중 인지(사건 시작 시각 — 실제로 안 시각으로 바꿀 수 있어요)", level="추정")
+
+    def set_aware_from_text(self, raw: str) -> bool:
+        """'2026-11-20 08:30', '오늘 아침 8시 반', '30분 전' 모두 받는다 — 사용자가 직접 고친 값은 '확인'."""
+        raw = (raw or "").strip()
+        when = None
+        try:
+            when = parse_kst_local(raw.replace("T", " "))
+        except Exception:  # noqa: BLE001 - 구어체
+            k = nlu.parse_time(raw)
+            when = k.astimezone(timezone.utc) if k else None
+        if not when:
+            return False
+        self.case.set_aware_at(when, source="사용자 지정(인지 시각 수정)", level="확인")
+        self.case.log("aware", f"인지 시각 수정: {kst_label(when)}")
+        return True
+
     def apply_category(self, key: str, *, guide: bool = True) -> dict:
         """10대 유형을 고르면 공통 초동조치·기한·즉답 가이드가 바로 작동한다."""
         cat = category_mod.get(key)
@@ -724,6 +755,7 @@ class Agent:
         if cat.incident_type and not self.case.known("incident_type") and cat.id not in AMBIGUOUS_TYPE:
             self.case.set_fact("incident_type", cat.incident_type, "추정", f"10대 유형 선택({cat.name})")
         self.case.log("category", f"사고 유형 선택: {cat.no}. {cat.name}")
+        self.ensure_aware()
         if guide:
             self.quick_guide(cat)
         self._recompute()
@@ -881,7 +913,46 @@ class Agent:
         ], max_tokens=450, temperature=0.2)
         return self.masker.unmask(out.strip())
 
+    ASK_OPTIONS = {
+        "aware": [("방금 알았어요", "방금 알았어요"), ("30분 전", "30분 전에 알았어요"), ("1시간 전", "1시간 전에 알았어요"),
+                  ("오늘 아침 9시", "오늘 아침 9시에 알았어요"), ("직접 입력", "@aware")],
+        "what": [("거래처·계좌 관련 메일", "거래처에서 계좌 변경 메일 관련 연락이 왔어요"),
+                 ("파일이 안 열려요", "파일이 이상한 확장자로 바뀌고 열리지 않아요"),
+                 ("메일 계정이 이상해요", "메일 계정이 해킹당한 것 같아요"),
+                 ("홈페이지·쇼핑몰 이상", "홈페이지 회원 정보가 털린 것 같아요"), ("직접 적기", "@type")],
+        "transfer": [("이미 보냈대요", "거래처가 이미 송금했대요"), ("보낼 예정", "송금할 예정이래요"),
+                     ("안 보냈대요", "아직 송금 안 했대요"), ("모르겠어요", "@skip")],
+        "backup": [("연결돼 있었어요", "백업은 외장하드에 있는데 꽂혀 있었어요"),
+                   ("분리 보관 중", "백업은 외장하드에 따로 분리해 보관하고 있어요"),
+                   ("백업 없어요", "백업은 없어요"), ("모르겠어요", "@skip")],
+        "hosts": [("1대", "암호화된 PC가 1대예요"), ("2~5대", "암호화된 PC가 3대 정도예요"),
+                  ("6대 이상", "암호화된 PC가 6대 이상이에요"), ("모르겠어요", "@skip")],
+        "pi": [("많이 있어요(1천 명 이상)", "고객 개인정보가 1,000명분 이상 있어요"), ("조금 있어요", "고객 정보가 조금 있어요"),
+               ("없어요", "고객 개인정보는 없어요"), ("모르겠어요", "@skip")],
+        "ict": [("네, 운영해요", "쇼핑몰이나 홈페이지를 운영하고 있어요"), ("아니요", "온라인 서비스는 제공하지 않아요"),
+                ("모르겠어요", "@skip")],
+        "domain": [("직접 입력", "@domain"), ("모르겠어요", "@skip")],
+    }
+
+    def asks(self) -> list[dict]:
+        """화면의 '확인이 필요해요' 카드 — 질문마다 누르기만 하면 되는 답 버튼. '모르겠어요'는 다시 묻지 않는다."""
+        out = []
+        for qid, q in self._missing_items():
+            if qid in self.case.skipped:
+                continue
+            out.append({"id": qid, "q": q,
+                        "options": [{"label": lb, "say": say} for lb, say in self.ASK_OPTIONS.get(qid, [])]})
+        return out
+
+    def skip_ask(self, qid: str) -> None:
+        if qid and qid not in self.case.skipped:
+            self.case.skipped.append(qid)
+            self.case.log("ask", f"질문 건너뜀(모름): {qid}")
+
     def _missing_questions(self) -> list[str]:
+        return [q for _, q in self._missing_items()]
+
+    def _missing_items(self) -> list[tuple[str, str]]:
         """다음에 물어볼 것 — 사고 유형에 맞는 질문만(랜섬웨어에 '메일 도메인'을 묻지 않는다)."""
         q = []
         itype = self.case.value("incident_type")
@@ -889,29 +960,29 @@ class Agent:
         mail_like = itype in ("ato", "spoof", "lookalike", "unknown", None) and not cat.startswith(("CAT04", "CAT05", "CAT06", "CAT07", "CAT09", "CAT10"))
         src = self.case.facts.get("aware_at")
         if not self.case.aware_at:
-            q.append("이 일을 처음 안 시각이 언제인가요? (예: 오늘 아침 8시 반) — 신고 기한 계산의 기준입니다")
+            q.append(("aware", "이 일을 처음 안 시각이 언제인가요? (예: 오늘 아침 8시 반) — 신고 기한 계산의 기준입니다"))
         elif src and src.source.startswith("대화 중 인지"):
-            q.append("처음 안 시각을 지금으로 적어 두었습니다. 실제로 언제 알았나요? (예: 오늘 오전 10시쯤 전화 받음)")
+            q.append(("aware", "처음 안 시각을 지금으로 적어 두었습니다. 실제로 언제 알았나요? (예: 오늘 오전 10시쯤 전화 받음)"))
         if itype is None or itype == "unknown":
             if not cat:
-                q.append("어떤 일이 있었나요? 화면·메일·전화로 본 것을 그대로 적어 주세요(위 10개 유형 중 골라도 됩니다)")
+                q.append(("what", "어떤 일이 있었나요? 화면·메일·전화로 본 것을 그대로 적어 주세요(위 10개 유형 중 골라도 됩니다)"))
         money_talk = any(k in " ".join(h.get("text", "") for h in self.case.history if h.get("kind") == "user")
                          for k in ("계좌", "송금", "입금", "이체", "대금", "거래처", "돈"))
         if mail_like and self.case.value("transfer_status") == "unknown" and (
                 cat in ("CAT01_BEC_ACCOUNT_CHANGE", "CAT03_LOOKALIKE_SPOOF") or (not cat and money_talk)):
-            q.append("거래처나 우리 쪽에서 실제로 돈이 나갔나요(송금 완료/예정/없음)?")
+            q.append(("transfer", "거래처나 우리 쪽에서 실제로 돈이 나갔나요(송금 완료/예정/없음)?"))
         if itype == "ransom" or cat == "CAT04_RANSOMWARE":
             if self.case.value("backup_status") in (None, "unknown"):
-                q.append("백업(외장하드·NAS·클라우드)이 있나요? 지금 PC나 서버에 연결돼 있나요?")
+                q.append(("backup", "백업(외장하드·NAS·클라우드)이 있나요? 지금 PC나 서버에 연결돼 있나요?"))
             if not isinstance(self.case.value("encrypted_hosts"), int):
-                q.append("파일이 바뀐 컴퓨터·서버가 몇 대인가요? 바뀐 확장자는 무엇인가요?")
+                q.append(("hosts", "파일이 바뀐 컴퓨터·서버가 몇 대인가요? 바뀐 확장자는 무엇인가요?"))
         if self.case.value("personal_data_leak") == "unknown":
             where = "메일함" if mail_like else "피해를 입은 PC·서버·DB"
-            q.append(f"{where}에 고객 개인정보(이름·연락처·주소 등)가 들어 있나요? 대략 몇 명분인가요?")
+            q.append(("pi", f"{where}에 고객 개인정보(이름·연락처·주소 등)가 들어 있나요? 대략 몇 명분인가요?"))
         if self.case.value("is_ict_service_provider") is None:
-            q.append("회사가 쇼핑몰·홈페이지·앱처럼 고객에게 온라인 서비스를 제공하나요? (24시간 침해사고 신고 대상 판단에 필요)")
+            q.append(("ict", "회사가 쇼핑몰·홈페이지·앱처럼 고객에게 온라인 서비스를 제공하나요? (24시간 침해사고 신고 대상 판단에 필요)"))
         if mail_like and not self.case.value("org_domains") and (not cat or self.case.value("platform") or cat in ("CAT01_BEC_ACCOUNT_CHANGE", "CAT02_MAIL_ACCOUNT_ATO", "CAT03_LOOKALIKE_SPOOF")):
-            q.append("회사 메일 도메인(메일 주소의 @ 뒤, 예: @ourcompany.co.kr)을 알려 주세요 — 사칭 여부를 가립니다")
+            q.append(("domain", "회사 메일 도메인(메일 주소의 @ 뒤, 예: @ourcompany.co.kr)을 알려 주세요 — 사칭 여부를 가립니다"))
         return q
 
     # ------------------------------------------------------------------ 보드
@@ -944,6 +1015,7 @@ class Agent:
             "recovery": playbook.recovery(self.case, self.det),
             "facts": self.case.facts_view(),
             "missing": self._missing_questions(),
+            "asks": self.asks(),
             "docs": [{"id": k, "title": v["title"], "kind": v["kind"]} for k, v in self.case.docs.items()],
             "sources": self.case.sources[:20],
             "law_checks": self.case.law_checks,
@@ -999,6 +1071,7 @@ class Agent:
                 "done": self.case.done,
                 "events": self.case.events,
                 "evidence": self.case.evidence,
+                "skipped": self.case.skipped,
             },
             "det": {**self.det.to_dict(),
                     "findings": [{**f.to_dict(), "ts": f.ts.isoformat() if f.ts else None}
@@ -1039,6 +1112,7 @@ class Agent:
         case.done = cdata.get("done") or {}
         case.events = cdata.get("events") or []
         case.evidence = cdata.get("evidence") or {}
+        case.skipped = cdata.get("skipped") or []
 
         det = DetectionResult()
         ddata = data.get("det") or {}

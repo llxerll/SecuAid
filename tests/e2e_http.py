@@ -218,6 +218,29 @@ class TestWebApp(unittest.TestCase):
         d = http_json(f"/api/{sid}/event/delete", "POST", {"id": ev_id, "state": state})
         self.assertFalse(any(e["id"] == ev_id for e in d["board"]["events"]))
 
+    def test_aware_edit_and_skip_over_http(self):
+        d = http_json("/api/session", "POST", {})
+        sid, state = d["session"], d["state"]
+        d = http_json(f"/api/{sid}/category/CAT04_RANSOMWARE", "POST", {"defer": True, "state": state})
+        state = d["state"]
+        self.assertTrue(d["board"]["case"]["aware_iso"])                 # 유형만 골라도 시계가 돈다
+        self.assertTrue(d["board"]["asks"][0]["options"])
+        d = http_json(f"/api/{sid}/aware", "POST", {"when": "30분 전", "state": state})
+        state = d["state"]
+        self.assertNotIn("aware", [x["id"] for x in d["board"]["asks"]])
+        d = http_json(f"/api/{sid}/ask/skip", "POST", {"id": "backup", "state": state})
+        self.assertNotIn("backup", [x["id"] for x in d["board"]["asks"]])
+        try:
+            http_json(f"/api/{sid}/aware", "POST", {"when": "언젠가", "state": d["state"]})
+            self.fail("읽을 수 없는 시각은 400")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 400)
+
+    def test_help_and_cta_in_html(self):
+        _, html = http("/")
+        for el in ('id="helpBtn"', 'id="helpModal"', 'id="howtoMore"', 'id="askCard"', 'id="nextCta"', 'id="awareEdit"'):
+            self.assertIn(el, html)
+
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             http("/api/nope/message", "POST", {"text": "hi"})

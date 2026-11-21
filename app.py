@@ -230,6 +230,30 @@ def add_event(sid: str):
     return _ok(agent, {"board": agent.board()})
 
 
+@app.post("/api/<sid>/aware")
+def set_aware(sid: str):
+    """인지 시각 수정 — '30분 전', '오늘 아침 9시', '2026-11-20 08:30' 모두 받는다."""
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    if not agent.set_aware_from_text(str(body.get("when") or "")):
+        return jsonify({"error": "시각을 읽지 못했습니다. 예) 오늘 아침 8시 반 · 30분 전 · 2026-11-20 08:30"}), 400
+    agent._recompute()
+    return _ok(agent, {"board": agent.board()})
+
+
+@app.post("/api/<sid>/ask/skip")
+def skip_ask(sid: str):
+    """'모르겠어요' — 그 질문은 다시 묻지 않는다(미확인으로 남는다)."""
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    agent.skip_ask(str(body.get("id") or ""))
+    return _ok(agent, {"board": agent.board()})
+
+
 @app.post("/api/<sid>/event/delete")
 def delete_event(sid: str):
     body = _body()
