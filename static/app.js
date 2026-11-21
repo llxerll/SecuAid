@@ -127,13 +127,69 @@ function say(role, text, opts = {}) {
   return div;
 }
 
-function askNext(b) {
-  const q = (b.missing || [])[0];
-  const last = $("chat").lastElementChild;
-  if (q && !(last && last.dataset.q === q)) {
-    const d = say("system", "확인 필요 · " + q);
-    d.dataset.q = q;
+function askNext(b) { /* v0.11: '확인이 필요해요' 카드(renderAsk)가 대신한다 */ }
+
+/* ---------------------------------------------------------------- 확인이 필요해요 · 지금 가장 먼저 */
+function renderAsk(b) {
+  const asks = b.asks || [];
+  const card = $("askCard");
+  if (!asks.length || document.body.dataset.stage !== "case") { card.classList.add("hidden"); return; }
+  const a = asks[0];
+  card.classList.remove("hidden");
+  card.innerHTML = `<div class="ask-head"><b>확인이 필요해요</b><span>${asks.length > 1 ? `${asks.length}개 중 1` : "마지막 질문"}</span></div>
+    <p class="ask-q">${esc(a.q)}</p>
+    <div class="ask-opts">${(a.options || []).map((o, i) => `<button type="button" class="ask-opt${o.say === "@skip" ? " skip" : ""}" data-i="${i}">${esc(o.label)}</button>`).join("")}</div>`;
+  card.querySelectorAll("button[data-i]").forEach((btn) => {
+    btn.onclick = () => answerAsk(a, a.options[Number(btn.dataset.i)]);
+  });
+}
+
+async function answerAsk(a, o) {
+  if (S.busy) return;
+  if (o.say === "@skip") {
+    try { const d = await post(`/api/${S.sid}/ask/skip`, { id: a.id }); S.board = d.board; render(d.board); say("system", "모르는 것으로 두고 넘어갑니다(문서에는 〔미확인〕으로 남습니다)."); }
+    catch (e) { say("system", "오류: " + e.message); }
+    return;
   }
+  if (o.say === "@aware") { openAwareForm(); return; }
+  if (o.say === "@domain") { $("input").value = "회사 메일 도메인은 @"; $("input").focus(); return; }
+  if (o.say === "@type") { $("input").placeholder = "예) 출근했더니 파일이 열리지 않아요 / 모르는 사람이 우리 메일로 로그인했대요"; $("input").focus(); return; }
+  await sendText(o.say);
+}
+
+function renderNextCta(b) {
+  const box = $("nextCta");
+  const acts = b.actions || [];
+  if (!acts.length || document.body.dataset.stage !== "case") { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  const next = acts.find((x) => !x.done);
+  if (!next) {
+    const hasDocs = (b.docs || []).length;
+    box.innerHTML = `<div class="cta-text"><span class="cta-label ok">초동 조치 완료</span><b>${hasDocs ? "신고서·통지문 초안이 준비돼 있습니다. 검토 후 제출하세요." : "이제 신고서·통지문 초안을 만드세요."}</b></div>
+      <div class="cta-btns"><button class="btn dark" type="button" id="ctaDocs">${hasDocs ? "문서 보기" : "문서 초안 만들기"}</button></div>`;
+    box.querySelector("#ctaDocs").onclick = () => (hasDocs ? setView("3") : makeDocs());
+    return;
+  }
+  const left = acts.filter((x) => !x.done).length;
+  box.innerHTML = `<div class="cta-text"><span class="cta-label">지금 가장 먼저 · ${esc(next.kind || "")}</span><b>${esc(next.action)}</b><span class="cta-who">${esc(next.who)} · 남은 일 ${left}개</span></div>
+    <div class="cta-btns"><button class="btn accent" type="button" id="ctaDone">했어요</button><button class="btn" type="button" id="ctaAll">할 일 전체</button></div>`;
+  box.querySelector("#ctaDone").onclick = () => toggleAction(next.key, true);
+  box.querySelector("#ctaAll").onclick = () => setView("1");
+}
+
+function openAwareForm() {
+  $("awareForm").classList.remove("hidden");
+  $("awareInput").focus();
+}
+
+async function submitAware(when) {
+  if (!when) return;
+  try {
+    const d = await withSession(() => post(`/api/${S.sid}/aware`, { when }));
+    S.board = d.board; render(d.board);
+    $("awareForm").classList.add("hidden"); $("awareInput").value = "";
+    say("system", `인지 시각을 ${d.board.case.aware_at}(으)로 고쳤습니다. 신고 기한이 다시 계산됐습니다.`);
+  } catch (e) { say("system", e.message); }
 }
 
 /* ---------------------------------------------------------------- 시작 */
@@ -725,6 +781,8 @@ function render(b) {
     : "";
 
   renderMode();
+  renderAsk(b);
+  renderNextCta(b);
   renderCategoryGrid();
   renderActions(b);
   renderProgress(b);
@@ -1062,12 +1120,28 @@ function tick() {
     time.className = "clock-time" + (diff < 0 && !review ? " over" : review || diff > 48 * 3600e3 ? " calm" : "");
     $("clockDue").textContent = `마감 ${next.due} · ${next.to}${next.status === "검토" ? " · 해당 여부 검토" : ""}`;
   } else {
+    // 신고 대상이 아직 '판단 보류'여도 시계는 멈추지 않는다 — 대상이라면 가장 이른 마감까지를 센다.
+    const pending = ((b.deadlines || {}).items || []).filter((x) => x.due_iso && x.status === "판단 보류")
+      .map((x) => ({ ...x, t: Date.parse(x.due_iso) })).sort((a, c) => a.t - c.t);
+    const soon = pending.find((x) => x.t > now) || pending[pending.length - 1];
     const anyNo = ((b.deadlines || {}).items || []).some((x) => x.status === "비해당");
-    $("clockLabel").textContent = "다음 법정 기한";
-    time.textContent = "--:--:--";
-    time.className = "clock-time calm";
-    $("clockDue").textContent = !aware ? "인지 시각을 알려 주면 기한이 계산됩니다"
-      : anyNo ? "현재 사실로는 신고 대상이 아닙니다(판단은 담당자)" : "사실관계가 더 필요합니다 — 판단 보류";
+    if (soon) {
+      const diff = soon.t - now;
+      $("clockLabel").textContent = `신고 대상이라면 마감까지 · ${soon.title}`;
+      time.textContent = (diff < 0 ? "+" : "") + hms(diff);
+      time.className = "clock-time calm";
+      $("clockDue").textContent = `마감 ${soon.due} · 해당 여부는 '확인이 필요해요' 질문에 답하면 정해집니다`;
+    } else if (aware) {
+      $("clockLabel").textContent = anyNo ? "신고 대상 아님(현재 판단) · 인지 후 경과" : "인지 후 경과";
+      time.textContent = hms(now - aware);
+      time.className = "clock-time calm";
+      $("clockDue").textContent = anyNo ? "현재 사실로는 법정 신고 대상이 아닙니다(최종 판단은 담당자)" : "사실관계가 더 필요합니다 — 판단 보류";
+    } else {
+      $("clockLabel").textContent = "다음 법정 기한";
+      time.textContent = "--:--:--";
+      time.className = "clock-time calm";
+      $("clockDue").textContent = "사건을 시작하면 바로 시계가 돕니다";
+    }
   }
   document.querySelectorAll("#deadlines [data-due]").forEach((el) => {
     const t = Date.parse(el.dataset.due);
@@ -1125,11 +1199,19 @@ $("modalCopy").onclick = async () => {
   catch (e) { $("modalCopy").textContent = "복사 실패"; }
   setTimeout(() => ($("modalCopy").textContent = "복사"), 1200);
 };
-const closeModals = () => { $("modal").classList.add("hidden"); $("vizModal").classList.add("hidden"); };
+const closeModals = () => { $("modal").classList.add("hidden"); $("vizModal").classList.add("hidden"); $("helpModal").classList.add("hidden"); };
 $("modalClose").onclick = closeModals;
 $("vizClose").onclick = closeModals;
 $("chartBtn").onclick = showViz;
 $("eventForm").addEventListener("submit", addEvent);
+$("awareEdit").onclick = () => $("awareForm").classList.toggle("hidden");
+$("awareForm").addEventListener("submit", (e) => { e.preventDefault(); submitAware($("awareInput").value.trim()); });
+$("awareForm").querySelectorAll("button[data-when]").forEach((b) => { b.onclick = () => submitAware(b.dataset.when); });
+const openHelp = () => { $("helpModal").classList.remove("hidden"); $("helpClose").focus(); };
+$("helpBtn").onclick = openHelp;
+$("howtoMore").onclick = openHelp;
+$("helpClose").onclick = () => $("helpModal").classList.add("hidden");
+$("helpModal").addEventListener("click", (e) => { if (e.target.id === "helpModal") $("helpModal").classList.add("hidden"); });
 $("vizTabNative").onclick = () => setVizTab("native");
 $("vizTabLiner").onclick = () => { setVizTab("liner"); if (S.viz) openViz(); };
 $("vizGenerate").onclick = generateLinerViz;

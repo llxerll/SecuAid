@@ -107,6 +107,54 @@ class TestPlainLanguageFacts(unittest.TestCase):
         self.assertTrue(b["actions"])
 
 
+class TestNoKnowledgeFlow(unittest.TestCase):
+    """v0.11 — 시계는 사건 시작과 함께, 질문은 버튼으로."""
+
+    def test_clock_starts_on_category_pick(self):
+        a = agent()
+        b = a.apply_category("CAT04_RANSOMWARE", guide=False)
+        self.assertIsNotNone(b["case"]["aware_iso"])
+        self.assertEqual(a.case.level("aware_at"), "추정")
+        self.assertTrue(any(d["due_iso"] for d in b["deadlines"]["items"]))
+        self.assertEqual(b["asks"][0]["id"], "aware")       # 실제 안 시각을 먼저 묻는다
+
+    def test_clock_starts_on_vague_first_message(self):
+        b = agent().handle("뭔가 이상해요")
+        self.assertIsNotNone(b["case"]["aware_iso"])
+
+    def test_every_answer_button_is_understood(self):
+        expect = {
+            ("transfer", "이미 보냈대요"): ("transfer_status", "done"),
+            ("transfer", "안 보냈대요"): ("transfer_status", "none"),
+            ("backup", "연결돼 있었어요"): ("backup_status", "at_risk"),
+            ("backup", "백업 없어요"): ("backup_status", "none"),
+            ("hosts", "2~5대"): ("encrypted_hosts", 3),
+            ("pi", "없어요"): ("personal_data_leak", "none"),
+            ("pi", "많이 있어요(1천 명 이상)"): ("affected_count", 1000),
+            ("ict", "네, 운영해요"): ("is_ict_service_provider", True),
+            ("ict", "아니요"): ("is_ict_service_provider", False),
+        }
+        for (qid, label), (key, val) in expect.items():
+            say = dict(Agent.ASK_OPTIONS[qid])[label]
+            a = agent()
+            a.handle("거래처에서 계좌 변경 메일 관련 연락이 왔어요")
+            a.handle(say)
+            self.assertEqual(a.case.value(key), val, (qid, label))
+
+    def test_skip_and_correct_aware(self):
+        a = agent()
+        a.apply_category("CAT04_RANSOMWARE", guide=False)
+        a.skip_ask("backup")
+        self.assertNotIn("backup", [x["id"] for x in a.asks()])
+        self.assertIn("백업", " ".join(a._missing_questions()))     # 브리핑에는 여전히 '모름'으로 남는다
+        self.assertTrue(a.set_aware_from_text("오늘 아침 8시 반"))
+        self.assertEqual(a.case.level("aware_at"), "확인")
+        self.assertNotIn("aware", [x["id"] for x in a.asks()])
+        self.assertFalse(a.set_aware_from_text("언젠가"))
+        restored = Agent.from_token(a.snapshot_token())
+        self.assertIn("backup", restored.case.skipped)
+
+
 class TestEvidenceHelper(unittest.TestCase):
     def test_platform_detection_and_order(self):
         a = agent()

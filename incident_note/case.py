@@ -101,7 +101,7 @@ VALUE_LABEL = {
     "transfer_status": {"none": "송금 없음", "pending": "송금 진행·예정", "done": "송금 완료", "unknown": "미확인"},
     "personal_data_leak": {"none": "유출 흔적 없음", "suspected": "유출 의심", "confirmed": "유출 확인",
                            "unknown": "미확인"},
-    "backup_status": {"offline_safe": "오프라인 사본 확보", "at_risk": "백업이 같은 망에 노출",
+    "backup_status": {"offline_safe": "오프라인 사본 확보", "at_risk": "백업이 같은 망에 노출", "none": "백업 없음",
                       "unknown": "미확인"},
 }
 
@@ -166,6 +166,7 @@ class Case:
     done: dict[str, dict] = field(default_factory=dict)      # 지금 할 일 체크리스트: key → {action, at}
     events: list[dict] = field(default_factory=list)         # 사용자 진술 타임라인: {id, ts, what, level, source}
     evidence: dict[str, str] = field(default_factory=dict)   # 증거 확보 체크: item_id → have | cannot
+    skipped: list[str] = field(default_factory=list)         # '모르겠어요'로 넘긴 질문 id
 
     def __post_init__(self) -> None:
         for k, v in DEFAULT_FACTS.items():
