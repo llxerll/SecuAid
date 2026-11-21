@@ -16,8 +16,6 @@ from email.utils import getaddresses, parsedate_to_datetime
 
 from .timeutil import parse_ts
 
-LIMITS = {"확인": 0, "추정": 1, "미확인": 2}
-
 # 철자 혼동(homoglyph) 정규화 — 유사 도메인 판별용
 _HOMOGLYPHS = {"0": "o", "1": "l", "3": "e", "5": "s", "7": "t", "rn": "m", "vv": "w", "ii": "u", "$": "s"}
 
@@ -61,11 +59,6 @@ class EmlTriage:
             "verdict": self.verdict,
             "basis": self.basis,
         }
-
-
-def looks_like_eml(text: str) -> bool:
-    head = text[:3000].lower()
-    return ("received:" in head or head.lstrip().startswith("from:")) and ("subject:" in head or "message-id" in head)
 
 
 def _addr(value: str) -> tuple[str, str]:

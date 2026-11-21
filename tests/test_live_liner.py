@@ -6,7 +6,7 @@
 import os
 import unittest
 
-from secuaid.liner import LinerClient, LinerError
+from secuaid.liner import LinerClient
 
 LIVE = os.environ.get("LINER_LIVE") == "1"
 

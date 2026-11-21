@@ -67,10 +67,6 @@ class DetectionResult:
     sources_seen: dict[str, int] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
-    @property
-    def by_rule(self) -> dict[str, int]:
-        return dict(Counter(f.rule_id for f in self.findings))
-
     def ordered(self) -> list[Finding]:
         return sorted(self.findings, key=lambda f: (f.ts is None, f.ts.timestamp() if f.ts else 0.0,
                                                     SEVERITY_RANK.get(f.severity, 9)))

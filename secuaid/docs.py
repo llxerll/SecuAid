@@ -11,14 +11,13 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 
 from .case import Case
 from .classify import Classification
 from . import deadline as deadline_mod
 from .detect import DetectionResult
-from .playbook import dont_do, select_cards
+from .playbook import dont_do
 from .severity import Severity
 from .timeutil import kst_label, now_utc, utc_label
 
@@ -85,7 +84,8 @@ def _fill(template: str, mapping: dict[str, str]) -> tuple[str, list[str]]:
 
 def _blank(placeholder: str) -> str:
     """채우지 못한 빈칸 표시 — 담당자가 발송 전에 찾아 채울 수 있게 항목명을 함께 남긴다."""
-    return f"〔{UNKNOWN}: {placeholder.strip('[]')}〕"
+    label = placeholder.strip("[] .")
+    return f"〔{UNKNOWN}: {label}〕" if label else f"〔{UNKNOWN}〕"
 
 
 def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[str, str]:
@@ -101,7 +101,6 @@ def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[st
                 subjects.append(subj)
     subject = subjects[0] if subjects else UNKNOWN
     window = _send_window(det)
-    count = case.value("affected_count")
     amount = case.value("transfer_amount") or UNKNOWN
     gi = case.value("transfer_counterparty") or UNKNOWN
     kinds = {"ato": "계정 침해", "spoof": "도메인 사칭", "lookalike": "유사 도메인 사칭",
@@ -150,13 +149,13 @@ def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[st
         "[송금 계좌(일부 마스킹)]": _mask_account(case.value("transfer_account") or ""),
         "[수취은행/수취인]": gi,
         "[거래번호/참조번호]": UNKNOWN,
-        "[한두 문장]": "거래처 계좌 변경 안내 메일을 받고 확인 전화를 하던 중, 당사가 계좌를 변경한 적이 없음을 확인",
+        "[한두 문장]": f"당사를 사칭한 계좌 변경 요청이 의심되는 송금입니다({_transfer_line(case)}). 당사는 계좌를 변경한 적이 없습니다",
         "[이름·직통번호]": UNKNOWN,
         "[증권번호]": UNKNOWN,
-        "[로그·메일 원본 등]": "로그인·감사·메시지 추적 로그, 메일 원본(헤더 포함)",
+        "[로그·메일 원본 등]": _preserved_line(case),
         "[언제, 어떤 계정]": f"{aware}, {account}",
         "[발송 수, 송금, 개인정보 — 확인/추정/미확인 구분]": _impact_line(case, det),
-        "[계정·세션 차단, 은행 연락]": "계정 일시 중지·세션 철회(진행), 은행 연락(진행)",
+        "[계정·세션 차단, 은행 연락]": _done_line(case),
         "[외부 통지, 전문가 선임, 서비스 중단]": _decision_line(case, cls),
         "[정확한 시각]": UNKNOWN,
         "[긴급]": "[긴급]",
@@ -165,12 +164,8 @@ def _facts_map(case: Case, det: DetectionResult, cls: Classification) -> dict[st
         "[확장자]": case.value("encrypted_ext") or UNKNOWN,
         "[랜섬노트 파일명]": case.value("ransom_note") or UNKNOWN,
         "[암호화 호스트]": f"{case.value('encrypted_hosts')}대" if isinstance(case.value("encrypted_hosts"), int) else UNKNOWN,
-        "[송금/계좌 변경/첨부파일/로그인 요청]": "계좌 변경" if "계좌" in " ".join(subjects) else "문서 공유·로그인 요청",
-        "[회사/팀명]": org,
         "[ ]": UNKNOWN,
-        "[ ].": UNKNOWN + ".",
-        "[날짜와 시간대]": aware,
-        "[회사/담당자]": f"{org} 사건 대응 담당",
+        "[ ].": f"〔{UNKNOWN}〕.",
     }
 
 
@@ -322,6 +317,16 @@ def _blank_label(name: str) -> str:
     return f"〔{UNKNOWN}: {name}〕"
 
 
+def _preserved_line(case: Case) -> str:
+    """보존 중인 증거 — 실제로 들어온 로그 종류와 [증거 확보]에서 '확보함'으로 표시한 것만."""
+    from . import evidence as evidence_mod
+    from .ingest import KIND_LABEL
+
+    items = [KIND_LABEL.get(k, k) + " 로그" for k in (case.log_kinds or [])]
+    items += evidence_mod.status_lines(case)[0]
+    return ", ".join(items) if items else _blank_label("보존 중인 증거 — [증거 확보] 탭에서 '확보함'으로 표시하면 채워집니다")
+
+
 def _done_line(case: Case) -> str:
     """체크리스트에 완료 표시한 조치만 시각과 함께 쓴다 — 하지 않은 조치를 했다고 적지 않는다."""
     done = sorted((case.done or {}).values(), key=lambda d: d.get("at_iso") or "")
@@ -407,10 +412,10 @@ def _exec_report(case: Case, det: DetectionResult, cls: Classification, sev: Sev
     body += (
         f"■ 심각도: {sev.level} {sev.name} — 판단 근거 수준: {sev.evidence_level}\n"
         f"■ 한 줄 상황: {cls.label} ({cls.level})\n\n"
-        f"1. 확인된 사실\n" + "\n".join(f"  - {kst_label(f.ts)} {f.summary}" for f in det.ordered()[:6]) + "\n"
-        f"2. 아직 모르는 점\n" + "\n".join(f"  - {u}" for u in unknowns) + "\n"
+        "1. 확인된 사실\n" + "\n".join(f"  - {kst_label(f.ts)} {f.summary}" for f in det.ordered()[:6]) + "\n"
+        "2. 아직 모르는 점\n" + "\n".join(f"  - {u}" for u in unknowns) + "\n"
         f"3. 돈: {_impact_line(case, det)}\n"
-        f"4. 필요한 결정\n" + "\n".join(f"  - {x}" for x in sev.must) + "\n"
+        "4. 필요한 결정\n" + "\n".join(f"  - {x}" for x in sev.must) + "\n"
         f"5. 다음 보고: {sev.next_report}\n"
         f"6. 하지 말 것\n" + "\n".join(f"  - {x}" for x in dont_do(case, det, cls)[:4]) + "\n"
     )
@@ -511,7 +516,6 @@ def to_docx(doc: Document) -> bytes | None:
         from io import BytesIO
 
         from docx import Document as Docx  # type: ignore
-        from docx.enum.section import WD_SECTION_START  # noqa: F401
         from docx.enum.table import WD_TABLE_ALIGNMENT
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml import OxmlElement

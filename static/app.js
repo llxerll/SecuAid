@@ -1,6 +1,7 @@
-/* 시큐에이드 (SecuAid) — 화면 로직 (의존성 없음) · v0.8
-   - 판정은 즉시, Liner 문장은 뒤따라: /message(defer) → /enrich(브리핑·가이드) · /law(법령 재확인, 병렬)
+/* 시큐에이드 (SecuAid) — 화면 로직 (프레임워크 없음) · v0.14
+   - 판정은 즉시, Liner 문장은 뒤따라: /message(defer) → /enrich(브리핑·가이드·답변) · /law(법령 재확인, 병렬)
    - 상태 토큰(state)을 바꾸는 요청은 한 줄로 세운다(queue) — 동시 요청이 토큰을 갈라놓지 않게.
+   - 사건은 탭(sessionStorage)과 이 브라우저(localStorage, 최근 5건)에 보관, 사건 파일(.json)로 옮긴다.
    - 72시간 시계: 인지 시각 기준 구간·다음 법정 기한 카운트다운을 1초마다 갱신.
    - 지금 할 일 체크리스트: 완료 시각이 신고서 '현재까지의 대응'에 들어간다. */
 const S = {
@@ -207,7 +208,6 @@ function say(role, text, opts = {}) {
   return div;
 }
 
-function askNext(b) { /* v0.11: '확인이 필요해요' 카드(renderAsk)가 대신한다 */ }
 
 /* ---------------------------------------------------------------- 확인이 필요해요 · 지금 가장 먼저 */
 function renderAsk(b) {
@@ -350,7 +350,6 @@ function applyBoard(b, opts = {}) {
   if (opts.reply && b.reply) say("bot", b.reply);
   const after = (b.severity || {}).level;
   if (before && after && before !== after && hasCase(b)) flashSeverity(before, after, b.severity);
-  askNext(b);
 }
 
 async function handlePending(pending, text = "") {

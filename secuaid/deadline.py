@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .case import VALUE_LABEL, Case
-from .timeutil import UTC, human_delta, kst_label, now_utc
+from .timeutil import human_delta, kst_label, now_utc
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 

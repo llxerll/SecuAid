@@ -1,7 +1,6 @@
 """10대 침해 사고 유형 카탈로그 테스트 — 선택만으로 공통 초동조치·기한·가이드가 작동하는가."""
 import os
 import unittest
-from pathlib import Path
 
 os.environ.setdefault("LINER_OFFLINE", "1")
 

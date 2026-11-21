@@ -1,5 +1,4 @@
 """로그 인제스트 · EML 헤더 판독 테스트."""
-import json
 import unittest
 from pathlib import Path
 

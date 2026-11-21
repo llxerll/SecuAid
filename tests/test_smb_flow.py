@@ -220,3 +220,23 @@ class TestActionHowto(unittest.TestCase):
         top = b["actions"][0]
         self.assertEqual(top["howto"], "H_BANK_RECALL")
         self.assertIn("지급정지", b["howto"]["H_BANK_RECALL"]["script"])
+
+
+class TestDocsTellOnlyWhatHappened(unittest.TestCase):
+    """문서에 하지 않은 조치·없는 증거·지어낸 경위를 쓰지 않는다(v0.14 정리)."""
+
+    def test_exec_bank_insurer_fields_follow_facts(self):
+        ag = agent()
+        ag.handle("거래처에서 저희 메일로 계좌번호가 바뀌었다고 전화 왔어요. 이미 1,870만 원을 보냈대요")
+        docs = ag.compose_docs(wait_law=False)
+        exec5 = docs["T6_exec5"]["body"]
+        self.assertNotIn("세션 철회(진행)", exec5)              # 체크하지 않았으면 '했다'고 쓰지 않는다
+        self.assertIn("〔미확인: 현재까지의 대응", exec5)
+        self.assertNotIn("확인 전화를 하던 중", docs["T4_bank"]["body"])
+        if "T5_insurer" in docs:
+            self.assertNotIn("메시지 추적 로그, 메일 원본", docs["T5_insurer"]["body"])   # 로그가 없으면 보존했다고 쓰지 않는다
+        for d in docs.values():
+            self.assertNotIn("〔미확인:  〕", d["body"])
+
+        ag.set_action_done(ag.board()["actions"][0]["key"], True)
+        self.assertIn("지급정지", ag.compose_docs(wait_law=False)["T6_exec5"]["body"])

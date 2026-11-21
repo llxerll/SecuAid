@@ -88,9 +88,5 @@ class Masker:
         return out
 
     @property
-    def token_count(self) -> int:
-        return len(self._map)
-
-    @property
     def kinds(self) -> list[str]:
         return sorted({t.strip("[]").rsplit("_", 1)[0] for t in self._map})

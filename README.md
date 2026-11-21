@@ -133,6 +133,7 @@ SecuAid/
 │   └─ scenarios/              # 가상 시나리오 S1~S4
 ├─ tests/                      # 단위·시나리오 · HTTP E2E · DOCX · 라이브 Liner
 ├─ docs/                       # 기획서(HTML·PDF) · 1p 요약 · 5분 데모 대본
+├─ docs/ci-tests.yml.txt       # GitHub Actions 테스트 워크플로 — .github/workflows/tests.yml 로 옮기면 동작
 └─ scripts/make_pdf_v1.py      # 기획서 HTML → PDF
 ```
 
