@@ -5,9 +5,9 @@ from pathlib import Path
 
 os.environ.setdefault("LINER_OFFLINE", "1")
 
-from incident_note import categories as cat_mod  # noqa: E402
-from incident_note.agent import Agent, SCENARIO_DIR  # noqa: E402
-from incident_note.liner import LinerClient  # noqa: E402
+from secuaid import categories as cat_mod  # noqa: E402
+from secuaid.agent import Agent, SCENARIO_DIR  # noqa: E402
+from secuaid.liner import LinerClient  # noqa: E402
 
 
 def agent():

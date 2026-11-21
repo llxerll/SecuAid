@@ -38,5 +38,5 @@
 "전문 대응 조직 즉시 호출"을 권고하는 것입니다. 심사 Q&A의 "AI가 모르는 상황이면요?"에 대한 답으로 씁니다.
 
 - 탐지 규칙: `data/log_rules_selfhosted.json` (v0.3에서 추가)
-- 엔진: `incident_note/detect.py` 의 `SR_*` / `FW_OUTBOUND_RDP` 규칙
+- 엔진: `secuaid/detect.py` 의 `SR_*` / `FW_OUTBOUND_RDP` 규칙
 - 주의: 서버 로컬 시간(KST)으로 적힌 secure 로그를 UTC로 오인하지 않도록 `assume_utc=False`로 파싱합니다.

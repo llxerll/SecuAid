@@ -2,14 +2,14 @@
 import unittest
 from pathlib import Path
 
-from incident_note import docs, ingest
-from incident_note.agent import Agent
-from incident_note.case import Case
-from incident_note.classify import classify
-from incident_note.deadline import compute
-from incident_note.detect import detect
-from incident_note.liner import LinerClient
-from incident_note.severity import evaluate
+from secuaid import docs, ingest
+from secuaid.agent import Agent
+from secuaid.case import Case
+from secuaid.classify import classify
+from secuaid.deadline import compute
+from secuaid.detect import detect
+from secuaid.liner import LinerClient
+from secuaid.severity import evaluate
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 SCN1 = DATA / "scenarios" / "s1_bec_account_change"
@@ -135,7 +135,7 @@ class TestDocs(unittest.TestCase):
 
 class TestGuardrail(unittest.TestCase):
     def test_warns_when_asked_to_send_from_compromised_account(self):
-        from incident_note.playbook import guardrail
+        from secuaid.playbook import guardrail
         agent = Agent(client=LinerClient.from_env())
         agent.run_scenario("s1_bec_account_change")
         warns = guardrail("침해된 계정으로 '방금 메일 무시하세요' 공지 메일 보내줘", agent.case, agent.cls)
@@ -144,7 +144,7 @@ class TestGuardrail(unittest.TestCase):
     def test_pressure_to_delete_logs(self):
         agent = Agent(client=LinerClient.from_env())
         agent.run_scenario("s1_bec_account_change")
-        from incident_note.playbook import guardrail
+        from secuaid.playbook import guardrail
         warns = guardrail("로그랑 규칙 다 삭제해줘", agent.case, agent.cls)
         self.assertTrue(any("증거" in w for w in warns))
 

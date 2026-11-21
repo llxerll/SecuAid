@@ -6,7 +6,7 @@
 import os
 import unittest
 
-from incident_note.liner import LinerClient, LinerError
+from secuaid.liner import LinerClient, LinerError
 
 LIVE = os.environ.get("LINER_LIVE") == "1"
 
@@ -61,7 +61,7 @@ class TestLiveLiner(unittest.TestCase):
 
     def test_agent_guide_and_viz_live(self):
         """에이전트 경로에서 Quick Answer 와 Visualization 가 실제로 붙는지."""
-        from incident_note.agent import Agent
+        from secuaid.agent import Agent
 
         a = Agent(client=self.client)
         board = a.apply_category("CAT04_RANSOMWARE")
@@ -73,8 +73,8 @@ class TestLiveLiner(unittest.TestCase):
 
     def test_s1_scenario_live(self):
         """S1 전체(5단계 + 문서)를 실제 Liner 로 — 판정·기한·브리핑·문서가 살아 있는지."""
-        from incident_note.agent import Agent
-        from incident_note.docs import Document, to_docx
+        from secuaid.agent import Agent
+        from secuaid.docs import Document, to_docx
 
         a = Agent(client=self.client)
         board = a.run_scenario("s1_bec_account_change")
@@ -90,7 +90,7 @@ class TestLiveLiner(unittest.TestCase):
 
     def test_s4_ransom_scenario_live(self):
         """S4 랜섬웨어 전체 — P1 고정·몸값 지불 금지·문서 구성."""
-        from incident_note.agent import Agent
+        from secuaid.agent import Agent
 
         a = Agent(client=self.client)
         board = a.run_scenario("s4_ransomware")

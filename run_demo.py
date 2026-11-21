@@ -17,9 +17,9 @@ import argparse
 import json
 from pathlib import Path
 
-from incident_note.agent import Agent
-from incident_note.liner import LinerClient
-from incident_note.timeutil import now_utc
+from secuaid.agent import Agent
+from secuaid.liner import LinerClient
+from secuaid.timeutil import now_utc
 
 
 def render_markdown(board: dict) -> str:

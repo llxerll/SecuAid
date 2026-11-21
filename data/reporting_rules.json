@@ -1,6 +1,6 @@
 {
   "meta": {
-    "name": "incident-note reporting rules",
+    "name": "SecuAid reporting rules",
     "version": "0.2.0",
     "verified_on": "2026-11-04",
     "disclaimer": "법률 자문이 아님. 실행 시 Liner Search(search_legal)로 최신 개정 여부를 재확인하고, 최종 판단은 담당자·전문가가 한다.",

@@ -8,8 +8,8 @@ import zlib
 os.environ.setdefault("LINER_OFFLINE", "1")
 
 import app as app_module  # noqa: E402
-from incident_note.agent import Agent  # noqa: E402
-from incident_note.liner import LinerClient  # noqa: E402
+from secuaid.agent import Agent  # noqa: E402
+from secuaid.liner import LinerClient  # noqa: E402
 
 
 def agent():
