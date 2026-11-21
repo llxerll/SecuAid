@@ -14,9 +14,88 @@ const STORE_KEY = "secuaid:v1";
 const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
 
 /* ---------------------------------------------------------------- 통신 */
-function persist() {
+function persist(board) {
   try { if (S.state && S.sid) sessionStorage.setItem(STORE_KEY, JSON.stringify({ sid: S.sid, state: S.state })); }
   catch (e) { /* 저장 공간 부족 — 메모리로 계속 */ }
+  const b = board || S.board;
+  if (S.state && S.sid && b && hasCase(b)) saveRecent(b);
+}
+
+/* v0.12 — 진행 중인 사건: 이 브라우저(localStorage)에 최근 5건 자동 보관 · 창을 닫아도 이어 하기 */
+const RECENT_KEY = "secuaid:cases";
+const RECENT_MAX = 5;
+function loadRecent() {
+  try { const v = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); return Array.isArray(v) ? v.filter((x) => x && x.sid && x.state) : []; }
+  catch (e) { return []; }
+}
+function writeRecent(list) {
+  for (let n = list.length; n > 0; n--) {
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, n))); return; }
+    catch (e) { /* 용량 초과 — 오래된 사건부터 덜어 낸다 */ }
+  }
+  try { localStorage.removeItem(RECENT_KEY); } catch (e) { /* noop */ }
+}
+function saveRecent(b) {
+  const c = b.case || {};
+  const acts = b.actions || [];
+  const entry = {
+    sid: S.sid, state: S.state, id: c.id || "", title: c.title || "사건", aware: c.aware_at || "",
+    sev: (b.severity || {}).level || "", done: acts.filter((a) => a.done).length, total: acts.length,
+    updated: new Date().toISOString(),
+  };
+  writeRecent([entry, ...loadRecent().filter((x) => x.sid !== S.sid && (!entry.id || x.id !== entry.id))].slice(0, RECENT_MAX));
+}
+function forgetRecent(sid) { writeRecent(loadRecent().filter((x) => x.sid !== sid)); }
+function agoLabel(iso) {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (!isFinite(m)) return "";
+  if (m < 1) return "방금";
+  if (m < 60) return `${m}분 전`;
+  if (m < 1440) return `${Math.floor(m / 60)}시간 전`;
+  return `${Math.floor(m / 1440)}일 전`;
+}
+function renderRecent() {
+  const box = $("recentCases");
+  const list = loadRecent();
+  if (!list.length) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="recent-head"><b>진행 중인 사건</b><span class="hint">이 브라우저에 자동 보관 · 이어서 하세요</span></div>
+    ${list.map((x, i) => `<div class="recent-row">
+      <button class="recent-open" type="button" data-i="${i}">
+        <span class="sev sev-${esc(x.sev || "none")}">${esc(x.sev || "—")}</span>
+        <span class="recent-txt"><b>${esc(x.title)}</b><span>${esc(x.id)} · 인지 ${esc(x.aware || "미확인")} · 할 일 ${x.done}/${x.total} · ${esc(agoLabel(x.updated))} 저장</span></span>
+        <span class="recent-go">이어서 하기 →</span>
+      </button>
+      <button class="btn small recent-del" type="button" data-i="${i}" aria-label="${esc(x.title)} 지우기">지우기</button>
+    </div>`).join("")}`;
+  box.querySelectorAll(".recent-open").forEach((el) => { el.onclick = () => resumeCase(list[+el.dataset.i]); });
+  box.querySelectorAll(".recent-del").forEach((el) => {
+    el.onclick = () => {
+      const x = list[+el.dataset.i];
+      if (!confirm(`'${x.title}' 사건을 이 브라우저에서 지울까요? (내려받은 문서·사건 파일은 남습니다)`)) return;
+      forgetRecent(x.sid); renderRecent();
+    };
+  });
+}
+async function resumeCase(x, note) {
+  if (!x || S.busy) return;
+  S.stopReplay = true;
+  try {
+    S.sid = x.sid; S.state = x.state; S.viz = null; S.evPicked = false; S.evPlatform = null; S.lawInFlight = false;
+    const data = await api(`/api/${S.sid}/board`, {});
+    if (!hasCase(data.board)) throw new Error("빈 사건");
+    $("chat").innerHTML = "";
+    S.board = data.board;
+    setStage("case");
+    render(data.board);
+    persist(data.board);
+    say("system", note || `'${data.board.case.title}' 사건을 이어서 엽니다. 체크한 일·타임라인·증거 표시가 그대로 있습니다.`);
+    window.scrollTo({ top: 0 });
+  } catch (e) {
+    say("system", "사건을 열지 못했습니다: " + e.message);
+    await newSession();
+    setStage("start");
+  }
 }
 function restorePoint() {
   try { const v = JSON.parse(sessionStorage.getItem(STORE_KEY) || "null"); return v && v.sid && v.state ? v : null; }
@@ -35,7 +114,7 @@ async function api(path, body) {
     const err = new Error(msg); err.status = res.status; throw err;
   }
   const data = await res.json();
-  if (data.state) { S.state = data.state; persist(); }
+  if (data.state) { S.state = data.state; persist(data.board); }
   return data;
 }
 
@@ -172,7 +251,8 @@ function renderNextCta(b) {
   }
   const left = acts.filter((x) => !x.done).length;
   box.innerHTML = `<div class="cta-text"><span class="cta-label">지금 가장 먼저 · ${esc(next.kind || "")}</span><b>${esc(next.action)}</b><span class="cta-who">${esc(next.who)} · 남은 일 ${left}개</span></div>
-    <div class="cta-btns"><button class="btn accent" type="button" id="ctaDone">했어요</button><button class="btn" type="button" id="ctaAll">할 일 전체</button></div>`;
+    <div class="cta-btns"><button class="btn" type="button" id="ctaHow">어떻게 하나요?</button><button class="btn accent" type="button" id="ctaDone">했어요</button><button class="btn" type="button" id="ctaAll">할 일 전체</button></div>`;
+  box.querySelector("#ctaHow").onclick = () => openHowto(next.key);
   box.querySelector("#ctaDone").onclick = () => toggleAction(next.key, true);
   box.querySelector("#ctaAll").onclick = () => setView("1");
 }
@@ -222,6 +302,7 @@ async function init() {
     } catch (e) { /* 새로 시작 */ }
   }
   await newSession();
+  renderRecent();
 }
 
 function hasCase(b) {
@@ -482,6 +563,142 @@ async function toggleAction(key, done) {
     delete S.optimistic[key];
     render(S.board);
     say("system", "체크를 저장하지 못했습니다: " + e.message);
+  }
+}
+
+/* ---------------------------------------------------------------- 어떻게 하나요? (v0.12) */
+function howtoHtml(h) {
+  const li = (xs) => xs.map((x) => `<li>${esc(x)}</li>`).join("");
+  return `<h4 class="howto-title">${esc(h.title)}</h4>
+    ${h.contact ? `<div class="howto-sec contact"><b>어디에 연락</b><p>${esc(h.contact)}</p></div>` : ""}
+    ${(h.prepare || []).length ? `<div class="howto-sec"><b>준비할 것</b><ul>${li(h.prepare)}</ul></div>` : ""}
+    <div class="howto-sec"><b>순서</b><ol>${li(h.steps || [])}</ol></div>
+    ${h.script ? `<div class="howto-sec script"><div class="script-head"><b>전화할 때 이렇게 말하세요</b><button class="btn small" type="button" id="howtoCopy">복사</button></div><p>${esc(h.script)}</p></div>` : ""}
+    ${h.caution ? `<div class="howto-sec caution"><b>주의</b><p>${esc(h.caution)}</p></div>` : ""}`;
+}
+async function openHowto(key) {
+  const b = S.board || {};
+  const a = (b.actions || []).find((x) => x.key === key);
+  if (!a) return;
+  S.howtoKey = key;
+  $("howtoTitle").textContent = "어떻게 하나요?";
+  $("howtoDone").textContent = a.done ? "완료 취소" : "했어요";
+  $("howtoModal").classList.remove("hidden");
+  const head = `<p class="howto-action">${esc(a.action)}</p>`;
+  const h = a.howto && (b.howto || {})[a.howto];
+  if (h) {
+    $("howtoBody").innerHTML = head + howtoHtml(h);
+    $("howtoNote").textContent = "시큐에이드 내장 안내 · 기관·업체 사정에 따라 다를 수 있어요";
+  } else {
+    S.howtoCache = S.howtoCache || {};
+    const cached = S.howtoCache[a.action];
+    $("howtoBody").innerHTML = head + (cached || `<div class="howto-loading"><span class="spin" aria-hidden="true"></span>Liner Quick Answer가 이 사건 상황에 맞춰 방법을 찾는 중입니다… 보통 5~15초</div>`);
+    $("howtoNote").textContent = "Liner Quick Answer · 출처를 확인하세요";
+    if (!cached) {
+      linerJob(+1);
+      try {
+        const r = await withSession(() => api(`/api/${S.sid}/howto`, { action: a.action }));
+        const refs = (r.references || []).map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || x.url)}</a></li>`).join("");
+        const html = r.answer
+          ? `<div class="howto-sec liner"><b>방법 (Liner)</b><div class="liner-answer">${fmt(r.answer)}</div>${refs ? `<b>출처</b><ul class="refs">${refs}</ul>` : ""}</div>`
+          : `<div class="howto-sec caution"><b>안내를 찾지 못했어요</b><p>${esc(r.error || "잠시 후 다시 눌러 보세요.")}</p><p>급하면 KISA 118(무료·24시간)에 이 할 일을 그대로 읽어 주고 상담받으세요.</p></div>`;
+        if (r.answer) S.howtoCache[a.action] = html;
+        if (S.howtoKey === key) $("howtoBody").innerHTML = head + html;
+      } catch (e) {
+        if (S.howtoKey === key) $("howtoBody").innerHTML = head + `<div class="howto-sec caution"><b>연결 실패</b><p>${esc(e.message)}</p></div>`;
+      } finally { linerJob(-1); }
+    }
+  }
+  const cp = $("howtoBody").querySelector("#howtoCopy");
+  if (cp) cp.onclick = async () => {
+    try { await navigator.clipboard.writeText(h.script); cp.textContent = "복사됨"; } catch (e) { cp.textContent = "복사 실패"; }
+    setTimeout(() => (cp.textContent = "복사"), 1200);
+  };
+  $("howtoClose").focus();
+}
+
+/* ---------------------------------------------------------------- 저장·공유 (v0.12) */
+const DEADLINE_ON = (x) => x.due_iso && (x.status === "해당" || x.status === "검토" || x.status === "판단 보류");
+const DDL_NOTE = { "검토": "해당 여부 검토", "판단 보류": "대상이면 이 시각까지 — 확인 필요" };
+function shareSummary(b) {
+  const c = b.case || {}, sev = b.severity || {};
+  const acts = b.actions || [];
+  const done = acts.filter((a) => a.done);
+  const todo = acts.filter((a) => !a.done).slice(0, 3);
+  const ddl = ((b.deadlines || {}).items || []).filter(DEADLINE_ON);
+  const cut = (t) => (t.length > 60 ? t.slice(0, 58) + "…" : t);
+  const lines = [
+    `[보안사고 보고] ${c.title || "사건"}`,
+    `· 심각도 ${sev.level || "-"} ${sev.name || ""}${sev.evidence_level ? ` (${sev.evidence_level})` : ""}`,
+    `· 인지 ${c.aware_at || "미확인"} · 사건번호 ${c.id || "-"}`,
+    "",
+    `■ 한 일 (${done.length}/${acts.length})`,
+    ...(done.length ? done.slice(0, 5).map((a) => `- ${cut(a.action)}${a.done_at && a.done_at !== "저장 중" ? ` (${a.done_at})` : ""}`) : ["- 아직 없음"]),
+    "",
+    "■ 다음 할 일",
+    ...(todo.length ? todo.map((a, i) => `${i + 1}. ${cut(a.action)} — ${a.who}`) : ["- 초동 조치 완료 · 신고서·통지문 검토"]),
+  ];
+  if (ddl.length) {
+    lines.push("", "■ 신고 마감");
+    ddl.forEach((x) => lines.push(`- ${x.title}: ${x.due}${x.remaining ? ` (${x.remaining})` : ""}${DDL_NOTE[x.status] ? " · " + DDL_NOTE[x.status] : ""}`));
+  }
+  lines.push("", "※ 시큐에이드 초안 · 최종 판단은 담당자 · 급하면 KISA 118");
+  return lines.join("\n");
+}
+function icsDate(iso) { return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); }
+function icsText(s) { return String(s || "").replace(/\\/g, "\\\\").replace(/([,;])/g, "\\$1").replace(/\n/g, "\\n"); }
+function buildIcs(b) {
+  const c = b.case || {};
+  const items = ((b.deadlines || {}).items || []).filter(DEADLINE_ON);
+  const stamp = icsDate(new Date().toISOString());
+  const ev = items.map((x, i) => {
+    const end = new Date(Date.parse(x.due_iso) + 30 * 60000).toISOString();
+    return ["BEGIN:VEVENT", `UID:${c.id || "case"}-${x.rule_id || i}@secuaid`, `DTSTAMP:${stamp}`,
+      `DTSTART:${icsDate(x.due_iso)}`, `DTEND:${icsDate(end)}`,
+      `SUMMARY:${icsText(`[마감] ${x.title}${x.status !== "해당" ? `(${x.status})` : ""} — ${c.title || ""}`)}`,
+      `DESCRIPTION:${icsText(`제출처: ${x.to}\n근거: ${x.legal_ref || "-"}\n${x.why || ""}\n사건번호 ${c.id || ""} · 시큐에이드 초안 기준(최종 판단은 담당자)`)}`,
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT2H", `DESCRIPTION:${icsText(x.title + " 마감 2시간 전")}`, "END:VALARM",
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT30M", `DESCRIPTION:${icsText(x.title + " 마감 30분 전")}`, "END:VALARM",
+      "END:VEVENT"].join("\r\n");
+  });
+  return { n: items.length, text: ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SecuAid//Incident deadlines//KO", "CALSCALE:GREGORIAN", ...ev, "END:VCALENDAR", ""].join("\r\n") };
+}
+function saveBlob(text, filename, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function openShare() {
+  const b = S.board;
+  if (!b || !hasCase(b)) return;
+  $("shareText").textContent = shareSummary(b);
+  const n = buildIcs(b).n;
+  $("shareIcs").disabled = !n;
+  $("shareIcsNote").textContent = n ? `마감 ${n}건` : "계산된 법정 마감이 아직 없습니다";
+  $("shareNative").classList.toggle("hidden", !navigator.share);
+  $("shareModal").classList.remove("hidden");
+  $("shareClose").focus();
+}
+function caseFileName(b, ext) {
+  const c = (b || {}).case || {};
+  return `SecuAid_${c.id || "case"}_${new Date().toISOString().slice(0, 10)}.${ext}`;
+}
+function exportCase() {
+  const b = S.board || {};
+  const payload = { format: "secuaid-case", v: 1, exported: new Date().toISOString(), id: (b.case || {}).id, title: (b.case || {}).title, state: S.state };
+  saveBlob(JSON.stringify(payload, null, 1), caseFileName(b, "json"), "application/json");
+}
+async function importCase(file) {
+  if (!file) return;
+  try {
+    const j = JSON.parse(await file.text());
+    if (!j || j.format !== "secuaid-case" || !j.state) throw new Error("시큐에이드 사건 파일이 아닙니다");
+    const sid = "f" + Array.from(crypto.getRandomValues(new Uint8Array(8)), (x) => x.toString(16).padStart(2, "0")).join("");
+    closeModals();
+    await resumeCase({ sid, state: j.state }, `사건 파일을 열었습니다 — '${j.title || "사건"}' (${(j.exported || "").slice(0, 10)} 저장본). 이 브라우저에도 보관됩니다.`);
+  } catch (e) {
+    alert("사건 파일을 열지 못했습니다: " + e.message);
   }
 }
 
@@ -855,10 +1072,14 @@ function renderActions(b) {
           <span class="text">${esc(a.action)}</span>
           <span class="meta">${esc(a.who)} · 플레이북 ${esc(a.ref)}${a.done && a.done_at ? ` · <b>완료 ${esc(a.done_at)}</b>` : ""}</span>
         </span>
+        <button class="how-btn" type="button" data-how="${esc(a.key)}" title="준비물 · 순서 · 전화할 때 할 말">어떻게?</button>
         <span class="win">${esc(a.kind || "")}</span>
       </label>`).join("")}`).join("");
   $("actions").querySelectorAll("input[data-key]").forEach((cb) => {
     cb.onchange = () => toggleAction(cb.dataset.key, cb.checked);
+  });
+  $("actions").querySelectorAll("button[data-how]").forEach((bt) => {
+    bt.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openHowto(bt.dataset.how); };
   });
 }
 
@@ -1199,7 +1420,7 @@ $("modalCopy").onclick = async () => {
   catch (e) { $("modalCopy").textContent = "복사 실패"; }
   setTimeout(() => ($("modalCopy").textContent = "복사"), 1200);
 };
-const closeModals = () => { $("modal").classList.add("hidden"); $("vizModal").classList.add("hidden"); $("helpModal").classList.add("hidden"); };
+const closeModals = () => { ["modal", "vizModal", "helpModal", "howtoModal", "shareModal"].forEach((id) => $(id).classList.add("hidden")); };
 $("modalClose").onclick = closeModals;
 $("vizClose").onclick = closeModals;
 $("chartBtn").onclick = showViz;
@@ -1232,7 +1453,43 @@ $("newCase").onclick = async () => {
   await newSession();
   document.body.dataset.viewSet = "";
   setStage("start");
+  renderRecent();
   window.scrollTo({ top: 0 });
 };
+$("howtoClose").onclick = closeModals;
+$("howtoDone").onclick = () => {
+  const a = ((S.board || {}).actions || []).find((x) => x.key === S.howtoKey);
+  closeModals();
+  if (a) toggleAction(a.key, !a.done);
+};
+$("howtoModal").addEventListener("click", (e) => { if (e.target.id === "howtoModal") closeModals(); });
+$("shareBtn").onclick = openShare;
+$("shareClose").onclick = closeModals;
+$("shareModal").addEventListener("click", (e) => { if (e.target.id === "shareModal") closeModals(); });
+$("shareCopy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("shareText").textContent); $("shareCopy").textContent = "복사됨 — 카톡에 붙여넣기"; }
+  catch (e) { $("shareCopy").textContent = "복사 실패 — 글을 길게 눌러 복사"; }
+  setTimeout(() => ($("shareCopy").textContent = "요약 복사"), 1800);
+};
+$("shareNative").onclick = async () => { try { await navigator.share({ title: "보안사고 보고", text: $("shareText").textContent }); } catch (e) { /* 취소 */ } };
+$("shareIcs").onclick = () => { const b = S.board; if (b) saveBlob(buildIcs(b).text, caseFileName(b, "ics"), "text/calendar;charset=utf-8"); };
+$("shareSave").onclick = exportCase;
+$("shareForget").onclick = () => {
+  if (!confirm("이 사건을 이 브라우저에서 지울까요? 화면은 첫 화면으로 돌아갑니다. (내려받은 파일은 남습니다)")) return;
+  forgetRecent(S.sid);
+  closeModals();
+  $("newCase").click();
+};
+$("caseFileInput").addEventListener("change", (e) => { importCase(e.target.files[0]); e.target.value = ""; });
+document.querySelector(".brand").addEventListener("click", (e) => {
+  // 로고 = 첫 화면. 지금 사건은 '진행 중인 사건'에 남아 있어 언제든 이어 한다(모바일에서는 [새 사건] 버튼 대신).
+  if (document.body.dataset.stage !== "case") return;
+  e.preventDefault();
+  $("newCase").click();
+});
+window.addEventListener("beforeunload", (e) => {
+  // 체크 저장이 Liner 응답 뒤에 줄 서 있는 동안 창을 닫으면 그 체크가 사라진다 — 한 번 묻는다.
+  if (S.optimistic && Object.keys(S.optimistic).length) { e.preventDefault(); e.returnValue = ""; }
+});
 setInterval(tick, 1000);
 init();

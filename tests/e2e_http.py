@@ -241,6 +241,42 @@ class TestWebApp(unittest.TestCase):
         for el in ('id="helpBtn"', 'id="helpModal"', 'id="howtoMore"', 'id="askCard"', 'id="nextCta"', 'id="awareEdit"'):
             self.assertIn(el, html)
 
+    def test_howto_share_and_resume_ui_in_html(self):
+        """v0.12 — 어떻게 하나요? · 저장·공유 · 진행 중인 사건 · 사건 파일 열기."""
+        _, html = http("/")
+        for el in ('id="howtoModal"', 'id="shareModal"', 'id="shareBtn"', 'id="recentCases"', 'id="caseFileInput"',
+                   'id="shareIcs"', 'id="shareSave"', 'id="shareForget"'):
+            self.assertIn(el, html)
+        _, js = http("/static/app.js")
+        for fn in ("function openHowto", "function buildIcs", "function shareSummary", "function importCase", "BEGIN:VALARM"):
+            self.assertIn(fn, js)
+
+    def test_howto_endpoint_offline(self):
+        d = http_json("/api/session", "POST", {})
+        sid, state = d["session"], d["state"]
+        d = http_json(f"/api/{sid}/category/CAT04_RANSOMWARE", "POST", {"defer": True, "state": state})
+        state = d["state"]
+        a = d["board"]["actions"][0]
+        self.assertEqual(a["howto"], "H_ISOLATE")
+        self.assertIn("H_ISOLATE", d["board"]["howto"])
+        res = http_json(f"/api/{sid}/howto", "POST", {"action": "암호화 범위 확인", "state": state})
+        self.assertEqual(res["answer"], "")              # 키 없음 → 빈 답 + 118 안내
+        self.assertIn("118", res["error"])
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            http(f"/api/{sid}/howto", "POST", {"action": "", "state": state})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_case_file_import_with_new_sid(self):
+        """사건 파일(state)만 있으면 새 sid로 그대로 다시 연다 — 다른 PC·다른 인스턴스."""
+        sid = http_json("/api/session", "POST", {})["session"]
+        d = http_json(f"/api/{sid}/scenario/s1_bec_account_change", "POST", {})
+        key = d["board"]["actions"][0]["key"]
+        d = http_json(f"/api/{sid}/action", "POST", {"key": key, "done": True, "state": d["state"]})
+        app_module.SESSIONS.clear()
+        b = http_json("/api/fabcdef0123456789/board", "POST", {"state": d["state"]})["board"]
+        self.assertEqual(b["case"]["id"], d["board"]["case"]["id"])
+        self.assertTrue(b["actions"][0]["done"])
+
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             http("/api/nope/message", "POST", {"text": "hi"})

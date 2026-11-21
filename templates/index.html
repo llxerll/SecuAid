@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#16181D" />
-  <link rel="icon" href="/favicon.ico?v=091" sizes="48x48" />
-  <link rel="icon" type="image/svg+xml" href="/static/logo.svg?v=091" />
+  <link rel="icon" href="/favicon.ico?v=012" sizes="48x48" />
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg?v=012" />
   <link rel="icon" type="image/png" href="/static/logo.png" />
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=091" />
   <meta property="og:image" content="/static/logo.png?v=091" />
@@ -38,6 +38,7 @@
         <div id="sevBadge" class="sev sev-none case-only">—</div>
         <button id="helpBtn" class="btn ghost-dark help-btn" type="button" aria-label="사용법 보기"><span class="q" aria-hidden="true">?</span><span class="help-label">사용법</span></button>
         <div id="modePill" class="pill" title="Liner API 연결 상태"><span class="dot"></span><span id="modeText">확인 중</span></div>
+        <button id="shareBtn" class="btn ghost-dark case-only" type="button" title="카카오톡 요약 · 달력 알림 · 사건 파일">저장·공유</button>
         <button id="newCase" class="btn ghost-dark case-only" type="button">새 사건</button>
       </div>
     </div>
@@ -95,6 +96,8 @@
           <p>보안을 몰라도 괜찮습니다. 본 것과 들은 것을 평소 말투로 적으세요. 로그가 없어도 됩니다.</p>
         </div>
 
+        <div id="recentCases" class="recent hidden" aria-label="진행 중인 사건"></div>
+
         <ol class="howto" aria-label="사용 방법 3단계">
           <li><span class="n">1</span><b>상황 말하기</b><span>"거래처에서 계좌 바뀌었냐고 전화 왔어요"처럼</span></li>
           <li><span class="n">2</span><b>버튼으로 답하기</b><span>필요한 것만 물어봅니다 · 모르면 '모르겠어요'</span></li>
@@ -107,6 +110,8 @@
           <textarea id="startInput" rows="3" placeholder="예) 거래처에서 우리가 계좌를 바꿨냐고 전화가 왔어요. 우리는 바꾼 적이 없습니다."></textarea>
           <div class="start-actions">
             <label class="btn" for="fileInput">.csv · .eml 첨부</label>
+            <label class="btn" for="caseFileInput" title="저장해 둔 사건 파일(.json)로 이어서 하기">사건 파일 열기</label>
+            <input id="caseFileInput" type="file" accept=".json,application/json" hidden />
             <span class="hint">개인정보는 Liner로 보내기 전에 가려집니다</span>
             <span class="spacer"></span>
             <button id="startSend" class="btn accent" type="submit">사건 시작</button>
@@ -343,6 +348,58 @@
     </div>
   </div>
 
+  <div id="howtoModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="howtoTitle">
+    <div class="modal-box howto-box">
+      <div class="modal-head">
+        <h3 id="howtoTitle">어떻게 하나요?</h3>
+        <div class="modal-tools"><button id="howtoClose" class="btn small" type="button">닫기</button></div>
+      </div>
+      <div id="howtoBody" class="howto-body"></div>
+      <div class="howto-foot">
+        <span id="howtoNote" class="hint"></span>
+        <span class="spacer"></span>
+        <button id="howtoDone" class="btn accent" type="button">했어요</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="shareModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+    <div class="modal-box share-box">
+      <div class="modal-head">
+        <h3 id="shareTitle">저장 · 공유</h3>
+        <div class="modal-tools"><button id="shareClose" class="btn small" type="button">닫기</button></div>
+      </div>
+      <div class="share-body">
+        <section class="share-sec">
+          <div class="share-head"><b>사장님·팀에 보고 (카카오톡·문자)</b><span class="hint">지금 상황 · 한 일 · 다음 할 일 · 마감을 한 번에</span></div>
+          <pre id="shareText" class="share-text"></pre>
+          <div class="share-btns">
+            <button id="shareCopy" class="btn dark" type="button">요약 복사</button>
+            <button id="shareNative" class="btn hidden" type="button">휴대폰으로 보내기</button>
+          </div>
+          <p class="hint">침해된 메일 계정·메신저로 보내지 마세요. 계좌번호·고객 개인정보는 넣지 않지만 보내기 전에 한 번 읽어 보세요.</p>
+        </section>
+        <section class="share-sec">
+          <div class="share-head"><b>신고 마감을 내 달력에</b><span class="hint">마감 2시간 전·30분 전 알림 — 휴대폰·아웃룩·구글 캘린더에서 열립니다</span></div>
+          <div class="share-btns"><button id="shareIcs" class="btn" type="button">달력 파일(.ics) 받기</button><span id="shareIcsNote" class="hint"></span></div>
+        </section>
+        <section class="share-sec">
+          <div class="share-head"><b>사건 파일</b><span class="hint">다른 PC에서 이어 하기 · 보관용 — 이 파일로 지금 화면을 그대로 다시 엽니다</span></div>
+          <div class="share-btns">
+            <button id="shareSave" class="btn" type="button">사건 파일 저장(.json)</button>
+            <label class="btn" for="caseFileInput">사건 파일 열기</label>
+          </div>
+          <p class="hint">사건 파일에는 입력한 내용이 그대로 들어 있습니다. 회사 PC·보안 폴더에 보관하세요.</p>
+        </section>
+        <section class="share-sec">
+          <div class="share-head"><b>이 브라우저에 자동 보관 중</b><span class="hint">창을 닫아도 첫 화면의 '진행 중인 사건'에서 이어 합니다 (최근 5건)</span></div>
+          <div class="share-btns"><button id="shareForget" class="btn" type="button">이 PC에서 이 사건 지우기</button></div>
+          <p class="hint">함께 쓰는 PC라면 끝난 뒤 지우세요.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
   <div id="helpModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
     <div class="modal-box help-box">
       <div class="modal-head">
@@ -367,7 +424,7 @@
           <div class="map-board"><b>② 대응 보드</b><span>지금 가장 먼저 · 할 일 체크<br>타임라인 · <u>증거 확보</u> · 문서 · 근거</span></div>
           <div class="map-side"><b>③ 판정 · 기한</b><span>무슨 사고인지 · 신고 대상과 마감 · 하지 말 것</span></div>
         </div>
-        <p class="hint">휴대폰에서는 아래쪽 탭(대화 · 할 일 · 기한·판정 · 문서)으로 한 화면씩 봅니다.</p>
+        <p class="hint">휴대폰에서는 아래쪽 탭(대화 · 할 일 · 기한·판정 · 문서)으로 한 화면씩 봅니다. 왼쪽 위 로고를 누르면 첫 화면으로 — 지금 사건은 '진행 중인 사건'에 남습니다.</p>
 
         <h4>자주 묻는 것</h4>
         <dl class="faq">
@@ -376,7 +433,8 @@
           <dt>잘못 말했어요.</dt><dd>다시 말하면 새 내용으로 바뀝니다. 타임라인의 진술은 [삭제]로 지울 수 있습니다.</dd>
           <dt>AI(Liner)는 무엇을 하나요?</dt><dd>판정·기한·할 일은 규칙 엔진이 같은 기준으로 계산합니다. Liner는 상황 설명을 알아듣고, 질문에 출처와 함께 답하고, 법령 근거와 업체 안내를 찾습니다. 보내기 전에 이름·전화·계좌 같은 개인정보는 가립니다.</dd>
           <dt>신고도 대신 해 주나요?</dt><dd>아니요. 신고서·통지문 초안까지 만듭니다. 최종 판단과 제출은 담당자가 합니다. 급하면 KISA 118(무료·24시간)에 전화하세요.</dd>
-          <dt>입력한 내용은 어디에 저장되나요?</dt><dd>데이터베이스에 따로 저장하지 않습니다. 사건 상태는 이 브라우저 탭에 보관되고(처리하는 동안만 서버 메모리를 거칩니다) 탭을 닫으면 사라집니다. 필요한 문서는 [문서] 탭에서 내려받아 두세요.</dd>
+          <dt>입력한 내용은 어디에 저장되나요?</dt><dd>서버 데이터베이스에는 저장하지 않습니다(처리하는 동안만 서버 메모리를 거칩니다). 사건은 <b>이 브라우저</b>에 자동 보관돼 창을 닫아도 첫 화면 '진행 중인 사건'에서 이어 할 수 있고, [저장·공유]에서 사건 파일로 내려받아 다른 PC에서 열 수 있습니다. 함께 쓰는 PC라면 [저장·공유] → [이 PC에서 지우기].</dd>
+          <dt>이 일을 어떻게 하는지 모르겠어요.</dt><dd>할 일 옆 [어떻게?]를 누르세요. 준비물·순서·전화할 때 할 말이 나옵니다. 안내가 없는 일은 Liner가 사건 상황에 맞춰 찾아 줍니다.</dd>
         </dl>
       </div>
     </div>
