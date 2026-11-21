@@ -11,6 +11,7 @@ Vercel: api/index.py 가 이 모듈의 `app` 을 노출한다(서버리스).
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -18,7 +19,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, g, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
 from incident_note import categories as category_mod
@@ -50,10 +51,16 @@ def _token(body: dict | None = None) -> str:
     return token if isinstance(token, str) and len(token) <= MAX_STATE_CHARS else ""
 
 
+def _watch(agent: Agent) -> Agent:
+    """이 요청 동안 일어난 Liner 호출을 응답에 붙이기 위해 시작 지점을 기억한다(after_request)."""
+    g.liner_agent, g.liner_mark = agent, len(agent.client.calls)
+    return agent
+
+
 def _agent(sid: str, body: dict | None = None) -> Agent | None:
     agent = SESSIONS.get(sid)
     if agent is not None:
-        return agent
+        return _watch(agent)
     token = _token(body)
     if not token:
         return None
@@ -63,7 +70,26 @@ def _agent(sid: str, body: dict | None = None) -> Agent | None:
         return None
     with LOCK:
         SESSIONS[sid] = agent
-    return agent
+    return _watch(agent)
+
+
+@app.after_request
+def _attach_liner_calls(resp: Response) -> Response:
+    """v0.13 — 응답에 이번 요청의 Liner 호출(API·성공·ms)을 붙인다. 화면의 [Liner 연동] 창이 사건별 사용 기록으로 쌓는다."""
+    agent = g.pop("liner_agent", None)
+    if agent is None or resp.mimetype != "application/json" or resp.direct_passthrough:
+        return resp
+    new = agent.client.calls[g.pop("liner_mark", 0):]
+    if not new:
+        return resp
+    try:
+        data = resp.get_json()
+        if isinstance(data, dict):
+            data["liner_calls"] = [{"id": c.get("id", ""), "api": c["api"], "ok": c["ok"], "ms": c["ms"]} for c in new[-12:]]
+            resp.set_data(json.dumps(data, ensure_ascii=False))
+    except Exception:  # noqa: BLE001 - 기록 첨부 실패가 응답을 막지 않게
+        pass
+    return resp
 
 
 def _ok(agent: Agent | None = None, payload: dict | None = None):
@@ -137,7 +163,7 @@ def categories():
 @app.post("/api/session")
 def new_session():
     body = _body()
-    agent = Agent(client=LinerClient.from_env())
+    agent = _watch(Agent(client=LinerClient.from_env()))
     sid = uuid.uuid4().hex[:12]
     with LOCK:
         SESSIONS[sid] = agent

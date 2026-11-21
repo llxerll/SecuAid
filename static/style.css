@@ -657,6 +657,54 @@ body[data-stage="case"] .start-only { display: none !important; }
   .share-btns .btn { flex: 1; }
 }
 
+/* v0.13 — Liner API 활용 창 */
+.pill-btn { cursor: pointer; font: inherit; background: transparent; color: inherit; }
+.pill-btn:hover { background: var(--rail-2); }
+.pill-btn .pill-more { font-size: 11px; opacity: .7; margin-left: 2px; }
+.liner-box { width: min(1080px, 100%); }
+.liner-sub { font-weight: 500; color: var(--muted); font-size: 14px; }
+.liner-body { overflow: auto; padding: 16px 18px 20px; display: flex; flex-direction: column; gap: 16px; font-size: 13.5px; line-height: 1.6; }
+.liner-status { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; color: var(--ink-2); }
+.liner-status .pill { color: var(--ink); }
+.liner-flow { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
+.lf { flex: 1 1 180px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; background: var(--surface-2); }
+.lf b { font-size: 13px; }
+.lf span { font-size: 12px; color: var(--muted); }
+.lf.mask { border-style: dashed; }
+.lf.rule { border-color: var(--ink); }
+.lf.liner { border-color: var(--info); background: color-mix(in srgb, var(--info) 8%, var(--surface)); }
+.lf-arrow { align-self: center; color: var(--faint); font-weight: 700; }
+.liner-principle { margin: 0; padding: 10px 12px; border-left: 3px solid var(--info); background: var(--surface-2); border-radius: 0 8px 8px 0; }
+.api-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.api-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.api-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.api-top b { font-size: 15px; color: var(--info); }
+.api-use { font-family: var(--mono); font-size: 11px; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.api-use.on { color: var(--info); border-color: var(--info); }
+.api-ep { font-size: 11.5px; color: var(--muted); }
+.api-ep code, .liner-status code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+.api-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.api-meta { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--ink-2); }
+.api-meta em { font-style: normal; font-weight: 700; color: var(--muted); margin-right: 6px; }
+.api-go { align-self: flex-start; margin-top: auto; }
+.liner-log { display: flex; flex-direction: column; gap: 8px; }
+.log-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.log-table th, .log-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line-2); }
+.log-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+.log-table td:first-child, .log-table td:last-child { font-family: var(--mono); }
+.log-table .ok { color: var(--ok); }
+.log-table .bad { color: var(--warn); }
+.liner-safe { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.liner-safe ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--ink-2); }
+@media (max-width: 640px) {
+  .liner-box { max-height: 92vh; border-radius: 14px 14px 0 0; }
+  .lf-arrow { display: none; }
+  .liner-sub { display: none; }
+  .lf { flex-basis: 100%; }
+  .api-grid { grid-template-columns: 1fr; }
+  .status-group .pill-btn .pill-more { display: inline; }
+}
+
 @media print {
   body.print-chart > *:not(#vizModal) { display: none !important; }
   body.print-chart #vizModal { position: static; background: none; padding: 0; }
