@@ -716,8 +716,10 @@ function exportCase() {
 async function importCase(file) {
   if (!file) return;
   try {
-    const j = JSON.parse(await file.text());
-    if (!j || j.format !== "secuaid-case" || !j.state) throw new Error("시큐에이드 사건 파일이 아닙니다");
+    if (/\.(csv|eml|log|txt)$/i.test(file.name)) throw new Error("로그·메일 원본은 사건 파일이 아닙니다. 사건을 시작한 뒤 대화창의 [.csv · .eml 첨부]로 넣으세요");
+    let j;
+    try { j = JSON.parse(await file.text()); } catch (e) { throw new Error("시큐에이드 사건 파일(.json) 형식이 아닙니다"); }
+    if (!j || j.format !== "secuaid-case" || !j.state) throw new Error("시큐에이드에서 [사건 파일 저장]으로 받은 .json이 아닙니다");
     const sid = "f" + Array.from(crypto.getRandomValues(new Uint8Array(8)), (x) => x.toString(16).padStart(2, "0")).join("");
     closeModals();
     await resumeCase({ sid, state: j.state }, `사건 파일을 열었습니다 — '${j.title || "사건"}' (${(j.exported || "").slice(0, 10)} 저장본). 이 브라우저에도 보관됩니다.`);
@@ -1444,7 +1446,7 @@ $("modalCopy").onclick = async () => {
   catch (e) { $("modalCopy").textContent = "복사 실패"; }
   setTimeout(() => ($("modalCopy").textContent = "복사"), 1200);
 };
-const closeModals = () => { ["modal", "vizModal", "helpModal", "howtoModal", "shareModal", "linerModal"].forEach((id) => $(id).classList.add("hidden")); };
+const closeModals = () => { ["modal", "vizModal", "helpModal", "howtoModal", "shareModal", "linerModal", "archModal"].forEach((id) => $(id).classList.add("hidden")); };
 $("modalClose").onclick = closeModals;
 $("vizClose").onclick = closeModals;
 $("chartBtn").onclick = showViz;
@@ -1481,6 +1483,11 @@ $("newCase").onclick = async () => {
   window.scrollTo({ top: 0 });
 };
 $("modePill").onclick = openLiner;
+const openArch = () => { closeModals(); $("archModal").classList.remove("hidden"); $("archClose").focus(); };
+$("archOpen").onclick = openArch;
+$("archFromHelp").onclick = openArch;
+$("archClose").onclick = closeModals;
+$("archModal").addEventListener("click", (e) => { if (e.target.id === "archModal") closeModals(); });
 $("linerClose").onclick = closeModals;
 $("linerModal").addEventListener("click", (e) => { if (e.target.id === "linerModal") closeModals(); });
 document.querySelectorAll("#linerModal .api-go").forEach((bt) => { bt.onclick = () => linerGo(bt.dataset.go); });

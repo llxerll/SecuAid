@@ -286,6 +286,14 @@ class TestWebApp(unittest.TestCase):
                    "/agents/search", "/tools/search/web", "/tools/visualization", "liner-mark-1.3"):
             self.assertIn(el, html)
 
+    def test_arch_and_case_file_in_html(self):
+        """v0.14 — 상용화 설계 창, 사건 파일은 로그 첨부 옆이 아니라 첫 화면 아래에서 설명과 함께."""
+        _, html = http("/")
+        for el in ('id="archModal"', 'id="archOpen"', 'id="archFromHelp"', "상용화", 'for="caseFileInput"', "시큐에이드 사건 파일(.json)"):
+            self.assertIn(el, html)
+        start_actions = html.split('class="start-actions"', 1)[1].split("</form>", 1)[0]
+        self.assertNotIn("caseFileInput", start_actions)     # 로그 첨부 버튼과 섞이지 않게
+
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             http("/api/nope/message", "POST", {"text": "hi"})
