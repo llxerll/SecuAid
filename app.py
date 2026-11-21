@@ -575,6 +575,9 @@ def _run(agent: Agent, *, scenario_id: str, aware_at: str | None = None, defer: 
 
 
 if __name__ == "__main__":
+    from secuaid.liner import load_env
+
+    load_env()                                   # .env 의 PORT·HOST 도 쓰도록 먼저 읽는다(Liner 키는 요청 때 다시 읽음)
     port = int(os.environ.get("PORT", "8000"))
     # 같은 Wi-Fi의 휴대폰에서 열어 보려면 HOST=0.0.0.0 (기본은 로컬만)
     app.run(host=os.environ.get("HOST", "127.0.0.1"), port=port, debug=False, threaded=True)
