@@ -18,7 +18,6 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 
 from .timeutil import KST, parse_ts
 
@@ -202,14 +201,6 @@ def parse(text: str, *, kind: str | None = None, default_year: int | None = None
         return ParsedLog(UNKNOWN, [], ["JSON에서 로그 레코드를 찾지 못했습니다."])
 
     return ParsedLog(UNKNOWN, [], ["지원하지 않는 형식입니다. CSV 헤더나 로그 첫 줄을 확인해 주세요."])
-
-
-def parse_paths(paths: list[str | Path], *, default_year: int | None = None) -> list[ParsedLog]:
-    out = []
-    for p in paths:
-        p = Path(p)
-        out.append(parse(p.read_text(encoding="utf-8", errors="replace"), default_year=default_year))
-    return out
 
 
 HEADER_SIGNATURES = (

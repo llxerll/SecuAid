@@ -2,8 +2,8 @@
 
 역할 분담(기획서 3장)
 - 계산: 규칙 엔진(detect/classify/severity/deadline) — LLM 없이도 같은 결과
-- 판단·문장: Liner Mark(liner-mark-1.3) — 사실을 해석하고 대화·문서 문장을 만든다
-- 근거: Liner Search API(검색 결과) + Search Agent API(출처 있는 답변)
+- 말: Liner Mark(liner-mark-1.3) — 구어체를 '추정' 사실로 보태고 브리핑 문장을 쓴다(규칙 결과를 덮지 않음)
+- 근거: Liner Quick Answer(가이드·질문·어떻게 하나요?) · Search Agent ∥ Search(법령 재확인) · Visualization(차트)
 
 Liner 키가 없거나 오류가 나면 자동으로 규칙 기반 모드로 내려간다(데모가 멈추지 않게).
 """
@@ -29,7 +29,7 @@ from . import playbook
 from .case import DEFAULT_FACTS, FACT_LABEL, Case, Fact, display_value
 from .classify import Classification, classify
 from .detect import DetectionResult, Finding, detect
-from .liner import LinerClient, LinerError, LinerUnavailable
+from .liner import LinerClient, LinerError
 from .mask import Masker
 from .severity import Severity, evaluate as evaluate_severity
 from .timeutil import kst_label, kst_short, now_utc, parse_kst_local, parse_ts

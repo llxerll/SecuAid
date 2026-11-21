@@ -696,6 +696,37 @@ body[data-stage="case"] .start-only { display: none !important; }
   .status-group .pill-btn .pill-more { display: inline; }
 }
 
+/* v0.14 — 첫 화면 아래 링크 · 상용화 설계 창 */
+.start-foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 24px; padding-top: 4px; border-top: 1px solid var(--line-2); }
+.foot-item { display: flex; flex-direction: column; gap: 3px; padding-top: 12px; }
+.foot-link { border: 0; background: none; padding: 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--info); cursor: pointer; text-align: left; align-self: flex-start; }
+.foot-link:hover { text-decoration: underline; }
+.link-inline { border: 0; background: none; padding: 0; font: inherit; color: var(--info); text-decoration: underline; cursor: pointer; }
+.arch-box { width: min(1080px, 100%); }
+.arch-body { overflow: auto; padding: 16px 18px 20px; display: flex; flex-direction: column; gap: 14px; font-size: 13.5px; line-height: 1.6; }
+.arch-body h4 { margin: 4px 0 0; font-size: 15px; }
+.arch-lead { margin: 0; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 8px 8px 0; }
+.arch-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.arch-col { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.arch-col h4 { margin: 0 0 6px; }
+.arch-col.next { border-color: var(--info); background: color-mix(in srgb, var(--info) 6%, var(--surface)); }
+.arch-col ul, .arch-keep, .arch-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.arch-col ul { list-style: none; padding-left: 0; }
+.arch-col li { display: grid; grid-template-columns: 64px 1fr; gap: 8px; }
+.arch-col li b { color: var(--muted); font-size: 12px; padding-top: 1px; }
+.arch-diagram { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.ad-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.ad-box { flex: 1 1 160px; max-width: 320px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 8px 10px; background: var(--surface); font-weight: 600; font-size: 13px; text-align: center; display: flex; flex-direction: column; gap: 2px; }
+.ad-box span { font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.ad-box.strong { border-color: var(--ink); }
+.ad-box.liner { border-color: var(--info); color: var(--info); }
+.ad-box.soft { border-style: dashed; font-weight: 500; }
+.ad-arrow { text-align: center; color: var(--faint); font-size: 12px; }
+@media (max-width: 640px) {
+  .arch-compare { grid-template-columns: 1fr; }
+  .arch-box { max-height: 92vh; border-radius: 14px 14px 0 0; }
+}
+
 @media print {
   body.print-chart > *:not(#vizModal) { display: none !important; }
   body.print-chart #vizModal { position: static; background: none; padding: 0; }

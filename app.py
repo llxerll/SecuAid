@@ -3,7 +3,7 @@
 실행: python app.py  (기본 http://127.0.0.1:8000, PORT 환경변수로 변경)
 Vercel: api/index.py 가 이 모듈의 `app` 을 노출한다(서버리스).
 
-세션(v0.5)
+세션
 - 서버 메모리(SESSIONS)는 캐시일 뿐이다. Vercel 같은 서버리스에서는 인스턴스가 바뀌면 사라진다.
 - 그래서 모든 응답이 `state` 토큰(사건 상태의 zlib+base64 스냅샷)을 함께 주고,
   요청에 그 토큰이 실려 오면 서버가 즉시 `Agent` 를 복원한다(없으면 404).
@@ -11,7 +11,6 @@ Vercel: api/index.py 가 이 모듈의 `app` 을 노출한다(서버리스).
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import threading
@@ -23,7 +22,7 @@ from flask import Flask, Response, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
 from secuaid import categories as category_mod
-from secuaid.agent import SCENARIO_DIR, Agent
+from secuaid.agent import Agent
 from secuaid.docs import to_docx
 from secuaid.liner import LinerClient
 
@@ -576,6 +575,9 @@ def _run(agent: Agent, *, scenario_id: str, aware_at: str | None = None, defer: 
 
 
 if __name__ == "__main__":
+    from secuaid.liner import load_env
+
+    load_env()                                   # .env 의 PORT·HOST 도 쓰도록 먼저 읽는다(Liner 키는 요청 때 다시 읽음)
     port = int(os.environ.get("PORT", "8000"))
     # 같은 Wi-Fi의 휴대폰에서 열어 보려면 HOST=0.0.0.0 (기본은 로컬만)
     app.run(host=os.environ.get("HOST", "127.0.0.1"), port=port, debug=False, threaded=True)

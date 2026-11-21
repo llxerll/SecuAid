@@ -144,8 +144,7 @@ class LinerClient:
         raise last or LinerError("알 수 없는 오류")
 
     # ------------------------------------------------------------------ 1) 대화·문장
-    def chat(self, messages: list[dict], *, temperature: float = 0.2, max_tokens: int = 2000,
-             json_mode: bool = False) -> str:
+    def chat(self, messages: list[dict], *, temperature: float = 0.2, max_tokens: int = 2000) -> str:
         """Liner Mark(Router API). OpenAI 호환 chat/completions.
 
         주의: response_format을 함께 보내면 400 invalid_request가 돌아온다(2026-11-15 확인).
@@ -166,7 +165,7 @@ class LinerClient:
                     {"role": "user", "content": user}]
         last_raw = ""
         for _ in range(retries + 1):
-            raw = self.chat(messages, json_mode=True, max_tokens=max_tokens)
+            raw = self.chat(messages, max_tokens=max_tokens)
             last_raw = raw
             parsed = _parse_json_loose(raw)
             if parsed is not None:

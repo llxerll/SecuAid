@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from secuaid.timeutil import (KST, human_delta, kst_label, parse_kst_local,
+from secuaid.timeutil import (human_delta, kst_label, parse_kst_local,
                                     parse_ts, utc_label)
 
 
@@ -58,3 +58,11 @@ class TestLabel(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSyslogLeapDay(unittest.TestCase):
+    def test_feb_29_with_leap_year(self):
+        """연도 없는 syslog 시각을 연도와 함께 해석 — 윤년 2월 29일도 읽는다."""
+        from secuaid.timeutil import parse_ts
+        dt = parse_ts("Feb 29 11:22:03", default_year=2028)
+        self.assertEqual((dt.year, dt.month, dt.day), (2028, 2, 29))

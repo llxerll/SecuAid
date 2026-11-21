@@ -70,13 +70,12 @@ def parse_ts(value: str | datetime | None, *, assume_utc: bool = True,
         except ValueError:
             continue
 
-    # syslog: 'Nov 16 11:22:03'
+    # syslog: 'Nov 16 11:22:03' — 연도가 없으므로 연도를 붙여 해석한다(1900년으로 먼저 읽으면 2월 29일이 실패한다).
+    year = default_year or datetime.now(KST).year
     for fmt in ("%b %d %H:%M:%S", "%b  %d %H:%M:%S"):
         try:
-            dt = datetime.strptime(s, fmt)
-            year = default_year or datetime.now(KST).year
-            dt = dt.replace(year=year, tzinfo=UTC if assume_utc else KST)
-            return dt.astimezone(UTC)
+            dt = datetime.strptime(f"{year} {s}", "%Y " + fmt)
+            return dt.replace(tzinfo=UTC if assume_utc else KST).astimezone(UTC)
         except ValueError:
             continue
 
@@ -111,12 +110,6 @@ def kst_short(dt: datetime | None) -> str:
         return "-"
     k = to_kst(dt)
     return f"{k.strftime('%m/%d %H:%M')} KST"
-
-
-def add_hours(dt: datetime, hours: float) -> datetime:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt + timedelta(hours=hours)
 
 
 def human_delta(target: datetime, now: datetime | None = None) -> str:
