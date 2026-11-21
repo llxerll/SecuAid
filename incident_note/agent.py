@@ -512,6 +512,16 @@ class Agent:
         self.case.events = [e for e in self.case.events if e.get("id") != event_id]
         return len(self.case.events) < before
 
+    def howto_from_liner(self, action: str) -> dict:
+        """내장 안내가 없는 할 일 — Liner Quick Answer에 사건 맥락을 붙여 '처음 하는 사람용' 순서를 묻는다."""
+        cat = category_mod.get(self.case.value("category"))
+        ctx = f"{cat.name} 사고" if cat else "보안사고"
+        q = (f"한국 소규모 회사가 {ctx} 대응 중입니다. IT 비전문가가 다음 일을 직접 하려면 무엇을 준비하고 어떤 순서로 하면 되는지 "
+             f"3~4단계로 쉽게 알려 주세요. 확실하지 않은 메뉴 이름은 단정하지 마세요. 할 일: {self.masker.mask(action)}")
+        res = self.client.quick_answer(q)
+        return {"action": action, "answer": self.masker.unmask(res.get("answer") or ""),
+                "references": res.get("references", [])[:3]}
+
     def answer_question(self, question: str) -> dict:
         """사용자의 자유 질문 — 사건 맥락을 붙여 Liner Quick Answer로 짧게 답한다(출처 포함)."""
         cat = category_mod.get(self.case.value("category"))
@@ -998,6 +1008,8 @@ class Agent:
             "severity": self.sev.to_dict(),
             "severity_history": self.sev_history[-6:],
             "events": self.case.events,
+            "howto": {h["id"]: {k: v for k, v in h.items() if k != "match"}
+                      for h in playbook.howto_items() if any(a.get("howto") == h["id"] for a in self.actions)},
             "evidence": evidence_mod.view(self.case),
             "classification": self.cls.to_dict(),
             "phase": self.phase,

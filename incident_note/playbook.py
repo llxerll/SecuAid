@@ -134,6 +134,24 @@ def urgent_branches(case: Case, det: DetectionResult) -> list[dict]:
     return out
 
 
+_HOWTO: list[dict] | None = None
+
+
+def howto_items() -> list[dict]:
+    global _HOWTO
+    if _HOWTO is None:
+        _HOWTO = json.loads((DATA / "action_howto.json").read_text(encoding="utf-8"))["items"]
+    return _HOWTO
+
+
+def howto_for(text: str) -> dict | None:
+    """할 일 문장에 맞는 '어떻게 하나요?'(준비물·순서·전화 대본) — 모든 키워드 묶음이 맞아야 한다, 먼저 맞는 것."""
+    for item in howto_items():
+        if all(any(k in text for k in group) for group in item["match"]):
+            return item
+    return None
+
+
 def action_key(text: str) -> str:
     """체크리스트 항목의 안정적인 키 — 같은 문장이면 사건이 다시 계산돼도 같은 키."""
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
@@ -205,6 +223,8 @@ def next_actions(case: Case, det: DetectionResult, cls: Classification, sev: Sev
     actions.sort(key=lambda a: a["priority"])
     out = actions[:12]
     for a in out:
+        h = howto_for(a["action"])
+        a["howto"] = h["id"] if h else None
         mark = case.done.get(a["key"])
         a["done"] = bool(mark)
         a["done_at"] = mark.get("at") if mark else None

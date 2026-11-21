@@ -187,3 +187,36 @@ class TestEvidenceHelper(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestActionHowto(unittest.TestCase):
+    """v0.12 — 할 일마다 '어떻게 하나요?'(준비물·순서·전화 대본) 내장 안내가 붙는다."""
+
+    def test_match_requires_every_group(self):
+        from incident_note import playbook
+        self.assertEqual(playbook.howto_for("송금 은행 공식 대표번호로 지급정지·회수 요청")["id"], "H_BANK_RECALL")
+        self.assertIsNone(playbook.howto_for("지급정지 여부를 나중에 검토"))   # '회수/리콜' 묶음이 없다
+
+    def test_howto_items_are_complete(self):
+        from incident_note import playbook
+        ids = [h["id"] for h in playbook.howto_items()]
+        self.assertEqual(len(ids), len(set(ids)))
+        for h in playbook.howto_items():
+            self.assertTrue(h["title"] and h["steps"] and h["match"], h["id"])
+
+    def test_urgent_actions_have_howto(self):
+        for sc in ("s1_bec_account_change", "s4_ransomware"):
+            b = Agent().run_scenario(sc)
+            first = b["actions"][:3]
+            self.assertTrue(all(a["howto"] for a in first), [a["action"][:30] for a in first])
+            for a in b["actions"]:
+                if a["howto"]:
+                    self.assertIn(a["howto"], b["howto"])          # 보드에 본문이 함께 실린다
+            self.assertNotIn("match", next(iter(b["howto"].values())))
+
+    def test_plain_language_bec_first_action_has_script(self):
+        ag = agent()
+        b = ag.handle("거래처에서 저희 메일로 계좌번호가 바뀌었다고 전화 왔어요. 이미 1,870만 원을 보냈대요")
+        top = b["actions"][0]
+        self.assertEqual(top["howto"], "H_BANK_RECALL")
+        self.assertIn("지급정지", b["howto"]["H_BANK_RECALL"]["script"])

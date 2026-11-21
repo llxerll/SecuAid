@@ -243,6 +243,26 @@ def set_aware(sid: str):
     return _ok(agent, {"board": agent.board()})
 
 
+@app.post("/api/<sid>/howto")
+def howto(sid: str):
+    """내장 안내가 없는 할 일의 '어떻게 하나요?' — Liner Quick Answer(상태를 바꾸지 않는다)."""
+    from incident_note.liner import LinerError
+
+    body = _body()
+    agent = _agent(sid, body)
+    if not agent:
+        return _missing()
+    action = str(body.get("action") or "").strip()[:300]
+    if not action:
+        return jsonify({"error": "할 일을 알려 주세요."}), 400
+    if not agent.client.available:
+        return jsonify({"answer": "", "error": "Liner 키가 없어 방법을 찾을 수 없습니다. KISA 118(무료·24시간)에 이 할 일을 그대로 말해 상담받으세요."})
+    try:
+        return jsonify(agent.howto_from_liner(action))
+    except LinerError as exc:
+        return jsonify({"answer": "", "error": f"Liner 응답 실패: {str(exc)[:120]}"})
+
+
 @app.post("/api/<sid>/ask/skip")
 def skip_ask(sid: str):
     """'모르겠어요' — 그 질문은 다시 묻지 않는다(미확인으로 남는다)."""

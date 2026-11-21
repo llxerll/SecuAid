@@ -604,6 +604,59 @@ body[data-stage="case"] .start-only { display: none !important; }
   .modal-box { max-height: 100vh; height: 100vh; border-radius: 0; }
 }
 
+/* v0.12 — 진행 중인 사건 · 어떻게 하나요? · 저장·공유 */
+.recent { border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.recent-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.recent-head b { font-size: 15px; }
+.recent-row { display: flex; gap: 8px; align-items: stretch; }
+.recent-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--ink); cursor: pointer; font: inherit; }
+.recent-open:hover { border-color: var(--ink); }
+.recent-open .sev { flex: 0 0 auto; }
+.recent-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.recent-txt b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-txt span { font-size: 12px; color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-go { font-size: 13px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.recent-del { align-self: center; }
+
+.how-btn { flex: 0 0 auto; align-self: center; border: 1px solid var(--line-strong); background: var(--surface); color: var(--info); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; min-height: 30px; white-space: nowrap; }
+.how-btn:hover { border-color: var(--info); }
+.act.done .how-btn { color: var(--faint); }
+
+.howto-box, .share-box { width: min(680px, 100%); }
+.howto-body, .share-body { overflow: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; font-size: 14px; line-height: 1.6; }
+.howto-action { margin: 0; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 8px 8px 0; font-weight: 600; }
+.howto-title { margin: 0; font-size: 17px; }
+.howto-sec { display: flex; flex-direction: column; gap: 4px; }
+.howto-sec > b { font-size: 12px; letter-spacing: .3px; color: var(--muted); }
+.howto-sec p { margin: 0; }
+.howto-sec ol, .howto-sec ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.howto-sec.contact p { font-weight: 600; }
+.howto-sec.script { background: var(--surface-2); border: 1px dashed var(--line-strong); border-radius: 10px; padding: 10px 12px; }
+.script-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.script-head b { font-size: 12px; color: var(--muted); }
+.howto-sec.caution { background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 10px 12px; }
+.howto-sec.caution > b { color: var(--warn); }
+.howto-sec .refs a { color: var(--info); word-break: break-all; }
+.liner-answer { white-space: pre-wrap; }
+.howto-loading { display: flex; gap: 10px; align-items: center; color: var(--muted); padding: 12px 0; }
+.howto-foot { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.howto-foot .spacer { flex: 1; }
+
+.share-sec { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--line-2); }
+.share-sec:last-child { border-bottom: 0; padding-bottom: 0; }
+.share-sec p { margin: 0; }
+.share-head { display: flex; flex-direction: column; gap: 2px; }
+.share-head b { font-size: 14px; }
+.share-text { margin: 0; padding: 12px; max-height: 240px; overflow: auto; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; white-space: pre-wrap; font-family: var(--sans); font-size: 13px; line-height: 1.55; }
+.share-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+@media (max-width: 640px) {
+  .recent-go { display: none; }
+  .modal { padding: 0; align-items: flex-end; }
+  .howto-box, .share-box { max-height: 92vh; border-radius: 14px 14px 0 0; }
+  .howto-foot .btn.accent { flex: 1; }
+  .share-btns .btn { flex: 1; }
+}
+
 @media print {
   body.print-chart > *:not(#vizModal) { display: none !important; }
   body.print-chart #vizModal { position: static; background: none; padding: 0; }
