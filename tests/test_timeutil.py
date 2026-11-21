@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from incident_note.timeutil import (KST, human_delta, kst_label, parse_kst_local,
+from secuaid.timeutil import (KST, human_delta, kst_label, parse_kst_local,
                                     parse_ts, utc_label)
 
 

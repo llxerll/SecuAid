@@ -679,21 +679,12 @@ body[data-stage="case"] .start-only { display: none !important; }
 .api-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
 .api-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .api-top b { font-size: 15px; color: var(--info); }
-.api-use { font-family: var(--mono); font-size: 11px; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
-.api-use.on { color: var(--info); border-color: var(--info); }
 .api-ep { font-size: 11.5px; color: var(--muted); }
 .api-ep code, .liner-status code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
 .api-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
 .api-meta { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--ink-2); }
 .api-meta em { font-style: normal; font-weight: 700; color: var(--muted); margin-right: 6px; }
 .api-go { align-self: flex-start; margin-top: auto; }
-.liner-log { display: flex; flex-direction: column; gap: 8px; }
-.log-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.log-table th, .log-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line-2); }
-.log-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; }
-.log-table td:first-child, .log-table td:last-child { font-family: var(--mono); }
-.log-table .ok { color: var(--ok); }
-.log-table .bad { color: var(--warn); }
 .liner-safe { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
 .liner-safe ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--ink-2); }
 @media (max-width: 640px) {

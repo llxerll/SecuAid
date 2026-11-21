@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 os.environ.setdefault("LINER_OFFLINE", "1")
 
-from incident_note import evidence, nlu  # noqa: E402
-from incident_note.agent import Agent  # noqa: E402
+from secuaid import evidence, nlu  # noqa: E402
+from secuaid.agent import Agent  # noqa: E402
 
 NOW = datetime(2026, 11, 20, 8, 13, tzinfo=timezone.utc)   # 17:13 KST
 
@@ -193,12 +193,12 @@ class TestActionHowto(unittest.TestCase):
     """v0.12 — 할 일마다 '어떻게 하나요?'(준비물·순서·전화 대본) 내장 안내가 붙는다."""
 
     def test_match_requires_every_group(self):
-        from incident_note import playbook
+        from secuaid import playbook
         self.assertEqual(playbook.howto_for("송금 은행 공식 대표번호로 지급정지·회수 요청")["id"], "H_BANK_RECALL")
         self.assertIsNone(playbook.howto_for("지급정지 여부를 나중에 검토"))   # '회수/리콜' 묶음이 없다
 
     def test_howto_items_are_complete(self):
-        from incident_note import playbook
+        from secuaid import playbook
         ids = [h["id"] for h in playbook.howto_items()]
         self.assertEqual(len(ids), len(set(ids)))
         for h in playbook.howto_items():

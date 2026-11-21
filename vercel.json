@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "app.py": {
-      "includeFiles": "{data/**,templates/**,static/**,incident_note/**}",
+      "includeFiles": "{data/**,templates/**,static/**,secuaid/**}",
       "memory": 1024,
       "maxDuration": 60
     }

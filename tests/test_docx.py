@@ -19,10 +19,10 @@ from urllib.parse import unquote
 os.environ.setdefault("LINER_OFFLINE", "1")
 
 import app as app_module  # noqa: E402
-from incident_note.agent import Agent  # noqa: E402
-from incident_note.docs import (BRAND_EN, BRAND_KO, DOCX_NOTICE,  # noqa: E402
+from secuaid.agent import Agent  # noqa: E402
+from secuaid.docs import (BRAND_EN, BRAND_KO, DOCX_NOTICE,  # noqa: E402
                                 FONT_EA, FONT_LATIN, Document, to_docx)
-from incident_note.liner import LinerClient  # noqa: E402
+from secuaid.liner import LinerClient  # noqa: E402
 
 try:
     from docx import Document as Docx  # type: ignore

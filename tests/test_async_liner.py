@@ -5,8 +5,8 @@ import threading
 import time
 import unittest
 
-from incident_note.agent import Agent
-from incident_note.liner import LinerClient
+from secuaid.agent import Agent
+from secuaid.liner import LinerClient
 
 
 class FakeLiner(LinerClient):

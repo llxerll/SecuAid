@@ -19,13 +19,13 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import Flask, Response, g, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
-from incident_note import categories as category_mod
-from incident_note.agent import SCENARIO_DIR, Agent
-from incident_note.docs import to_docx
-from incident_note.liner import LinerClient
+from secuaid import categories as category_mod
+from secuaid.agent import SCENARIO_DIR, Agent
+from secuaid.docs import to_docx
+from secuaid.liner import LinerClient
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__, static_folder=str(ROOT / "static"), template_folder=str(ROOT / "templates"))
@@ -51,16 +51,10 @@ def _token(body: dict | None = None) -> str:
     return token if isinstance(token, str) and len(token) <= MAX_STATE_CHARS else ""
 
 
-def _watch(agent: Agent) -> Agent:
-    """이 요청 동안 일어난 Liner 호출을 응답에 붙이기 위해 시작 지점을 기억한다(after_request)."""
-    g.liner_agent, g.liner_mark = agent, len(agent.client.calls)
-    return agent
-
-
 def _agent(sid: str, body: dict | None = None) -> Agent | None:
     agent = SESSIONS.get(sid)
     if agent is not None:
-        return _watch(agent)
+        return agent
     token = _token(body)
     if not token:
         return None
@@ -70,26 +64,7 @@ def _agent(sid: str, body: dict | None = None) -> Agent | None:
         return None
     with LOCK:
         SESSIONS[sid] = agent
-    return _watch(agent)
-
-
-@app.after_request
-def _attach_liner_calls(resp: Response) -> Response:
-    """v0.13 — 응답에 이번 요청의 Liner 호출(API·성공·ms)을 붙인다. 화면의 [Liner 연동] 창이 사건별 사용 기록으로 쌓는다."""
-    agent = g.pop("liner_agent", None)
-    if agent is None or resp.mimetype != "application/json" or resp.direct_passthrough:
-        return resp
-    new = agent.client.calls[g.pop("liner_mark", 0):]
-    if not new:
-        return resp
-    try:
-        data = resp.get_json()
-        if isinstance(data, dict):
-            data["liner_calls"] = [{"id": c.get("id", ""), "api": c["api"], "ok": c["ok"], "ms": c["ms"]} for c in new[-12:]]
-            resp.set_data(json.dumps(data, ensure_ascii=False))
-    except Exception:  # noqa: BLE001 - 기록 첨부 실패가 응답을 막지 않게
-        pass
-    return resp
+    return agent
 
 
 def _ok(agent: Agent | None = None, payload: dict | None = None):
@@ -114,7 +89,7 @@ def _on_error(exc):
         return exc
     return jsonify({
         "error": f"서버 오류: {exc.__class__.__name__}: {str(exc)[:200]}",
-        "hint": "Vercel이면 vercel.json 의 functions.includeFiles 에 data/ templates/ static/ incident_note/ 가 포함됐는지 확인하세요.",
+        "hint": "Vercel이면 vercel.json 의 functions.includeFiles 에 data/ templates/ static/ secuaid/ 가 포함됐는지 확인하세요.",
     }), 500
 
 
@@ -163,7 +138,7 @@ def categories():
 @app.post("/api/session")
 def new_session():
     body = _body()
-    agent = _watch(Agent(client=LinerClient.from_env()))
+    agent = Agent(client=LinerClient.from_env())
     sid = uuid.uuid4().hex[:12]
     with LOCK:
         SESSIONS[sid] = agent
@@ -231,8 +206,8 @@ def law_merge(sid: str):
 @app.post("/api/<sid>/event")
 def add_event(sid: str):
     """'기억나는 일' 한 줄을 타임라인에 — 시각은 '2026-11-20 08:30' 또는 '오늘 아침 8시 반' 모두 받는다."""
-    from incident_note import nlu
-    from incident_note.timeutil import parse_kst_local
+    from secuaid import nlu
+    from secuaid.timeutil import parse_kst_local
 
     body = _body()
     agent = _agent(sid, body)
@@ -272,7 +247,7 @@ def set_aware(sid: str):
 @app.post("/api/<sid>/howto")
 def howto(sid: str):
     """내장 안내가 없는 할 일의 '어떻게 하나요?' — Liner Quick Answer(상태를 바꾸지 않는다)."""
-    from incident_note.liner import LinerError
+    from secuaid.liner import LinerError
 
     body = _body()
     agent = _agent(sid, body)
@@ -313,7 +288,7 @@ def delete_event(sid: str):
 
 @app.post("/api/<sid>/evidence")
 def set_evidence(sid: str):
-    from incident_note import evidence as evidence_mod
+    from secuaid import evidence as evidence_mod
 
     body = _body()
     agent = _agent(sid, body)
@@ -328,7 +303,7 @@ def set_evidence(sid: str):
 @app.post("/api/<sid>/evidence/request")
 def evidence_request(sid: str):
     """호스팅·IT 업체에 보낼 '로그 보존·제공 요청' 초안 — 상태를 바꾸지 않는다."""
-    from incident_note import evidence as evidence_mod
+    from secuaid import evidence as evidence_mod
 
     body = _body()
     agent = _agent(sid, body)
@@ -343,8 +318,8 @@ def evidence_request(sid: str):
 @app.post("/api/<sid>/evidence/search")
 def evidence_search(sid: str):
     """Liner Search로 해당 업체의 공식 안내(로그 확인 방법)를 찾는다 — 상태를 바꾸지 않는다."""
-    from incident_note import evidence as evidence_mod
-    from incident_note.liner import LinerError
+    from secuaid import evidence as evidence_mod
+    from secuaid.liner import LinerError
 
     body = _body()
     agent = _agent(sid, body)
@@ -515,7 +490,7 @@ def download_doc(sid: str, doc_id: str):
 
 @app.get("/api/<sid>/doc/<doc_id>.docx")
 def get_docx(sid: str, doc_id: str):
-    from incident_note.docs import Document
+    from secuaid.docs import Document
 
     agent = _agent(sid, _body())
     if not agent:
@@ -536,7 +511,7 @@ def get_docs_zip(sid: str):
     import io
     import zipfile
 
-    from incident_note.docs import Document
+    from secuaid.docs import Document
 
     agent = _agent(sid, _body())
     if not agent:

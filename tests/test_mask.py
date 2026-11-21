@@ -1,7 +1,7 @@
 """PII 마스킹 테스트 — 기획서 핵심 원칙(밖으로 보내지 않는다)의 회귀 방지."""
 import unittest
 
-from incident_note.mask import Masker
+from secuaid.mask import Masker
 
 
 class TestMask(unittest.TestCase):

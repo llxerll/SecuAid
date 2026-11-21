@@ -6,7 +6,7 @@
 const S = {
   sid: null, state: null, board: null, busy: false, replaying: false, stopReplay: false,
   cats: [], viz: null, lawInFlight: false, liner: false, linerJobs: 0, queue: Promise.resolve(),
-  usage: [], health: null,
+  health: null,
 };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -16,7 +16,7 @@ const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
 
 /* ---------------------------------------------------------------- 통신 */
 function persist(board) {
-  try { if (S.state && S.sid) sessionStorage.setItem(STORE_KEY, JSON.stringify({ sid: S.sid, state: S.state, usage: S.usage })); }
+  try { if (S.state && S.sid) sessionStorage.setItem(STORE_KEY, JSON.stringify({ sid: S.sid, state: S.state })); }
   catch (e) { /* 저장 공간 부족 — 메모리로 계속 */ }
   const b = board || S.board;
   if (S.state && S.sid && b && hasCase(b)) saveRecent(b);
@@ -42,7 +42,7 @@ function saveRecent(b) {
   const entry = {
     sid: S.sid, state: S.state, id: c.id || "", title: c.title || "사건", aware: c.aware_at || "",
     sev: (b.severity || {}).level || "", done: acts.filter((a) => a.done).length, total: acts.length,
-    updated: new Date().toISOString(), usage: S.usage.slice(-60),
+    updated: new Date().toISOString(),
   };
   writeRecent([entry, ...loadRecent().filter((x) => x.sid !== S.sid && (!entry.id || x.id !== entry.id))].slice(0, RECENT_MAX));
 }
@@ -83,7 +83,6 @@ async function resumeCase(x, note) {
   S.stopReplay = true;
   try {
     S.sid = x.sid; S.state = x.state; S.viz = null; S.evPicked = false; S.evPlatform = null; S.lawInFlight = false;
-    S.usage = Array.isArray(x.usage) ? x.usage : [];
     const data = await api(`/api/${S.sid}/board`, {});
     if (!hasCase(data.board)) throw new Error("빈 사건");
     $("chat").innerHTML = "";
@@ -116,7 +115,6 @@ async function api(path, body) {
     const err = new Error(msg); err.status = res.status; throw err;
   }
   const data = await res.json();
-  if (Array.isArray(data.liner_calls) && data.liner_calls.length) recordUsage(data.liner_calls);
   if (data.state) { S.state = data.state; persist(data.board); }
   return data;
 }
@@ -294,7 +292,7 @@ async function init() {
   const saved = restorePoint();
   if (saved) {
     try {
-      S.sid = saved.sid; S.state = saved.state; S.usage = Array.isArray(saved.usage) ? saved.usage : [];
+      S.sid = saved.sid; S.state = saved.state;
       const data = await api(`/api/${S.sid}/board`, {});
       if (hasCase(data.board)) {
         S.board = data.board;
@@ -315,7 +313,7 @@ function hasCase(b) {
 }
 
 async function newSession() {
-  S.state = null; S.viz = null; S.evPicked = false; S.evPlatform = null; S.usage = [];
+  S.state = null; S.viz = null; S.evPicked = false; S.evPlatform = null;
   try { sessionStorage.removeItem(STORE_KEY); } catch (e) { /* noop */ }
   const data = await api("/api/session", {});
   S.sid = data.session; S.board = data.board;
@@ -571,40 +569,13 @@ async function toggleAction(key, done) {
 }
 
 /* ---------------------------------------------------------------- Liner API 활용 창 (v0.13) */
-const API_OF = { chat: "mark", quick_answer: "qa", search_agent: "sa", search_web: "search", visualization: "viz" };
-const API_LABEL = { mark: "Liner Mark", qa: "Quick Answer", sa: "Search Agent", search: "Search", viz: "Visualization" };
-function recordUsage(calls) {
-  const at = new Date().toISOString();
-  // 같은 사건에 동시에 간 요청(법령 재확인 ∥ 브리핑)은 같은 호출을 함께 보고할 수 있다 — id로 한 번만 센다.
-  const seen = new Set(S.usage.map((u) => u.id).filter(Boolean));
-  calls.forEach((c) => {
-    if (c.id && seen.has(c.id)) return;
-    seen.add(c.id);
-    S.usage.push({ id: c.id || "", api: API_OF[c.api] || c.api, ok: !!c.ok, ms: c.ms | 0, at });
-  });
-  if (S.usage.length > 200) S.usage = S.usage.slice(-200);
-  if (!$("linerModal").classList.contains("hidden")) renderLinerModal();
-}
 function renderLinerModal() {
   const b = S.board || {};
   const live = S.liner || (b.api || {}).mode === "liner";
   const h = S.health || {};
-  const total = S.usage.length, okN = S.usage.filter((u) => u.ok).length;
   $("linerStatus").innerHTML = `<span class="pill ${live ? "live" : ""} light"><span class="dot"></span>${live ? "Liner 연동 중" : "Liner 키 없음 — 규칙 기반으로 동작"}</span>
     <span>기본 모델 <code>${esc((b.api || {}).model || "liner-mark-1.3")}</code></span>
-    ${h.latency_ms ? `<span>연결 확인 ${esc(h.latency_ms)}ms</span>` : ""}
-    <span>${hasCase(b) ? `이 사건에서 Liner 호출 <b>${total}회</b>${total ? ` · 성공 ${okN}` : ""}` : "사건을 시작하면 호출 기록이 쌓입니다"}</span>`;
-  const by = {};
-  S.usage.forEach((u) => { const x = (by[u.api] = by[u.api] || { n: 0, ok: 0, ms: 0 }); x.n++; if (u.ok) { x.ok++; x.ms += u.ms; } });
-  document.querySelectorAll("#linerModal [data-use]").forEach((el) => {
-    const x = by[el.dataset.use];
-    el.textContent = x ? `이 사건 ${x.n}회${x.ok ? ` · 평균 ${(x.ms / x.ok / 1000).toFixed(1)}초` : ""}` : "이 사건 0회";
-    el.classList.toggle("on", !!x);
-  });
-  const rows = S.usage.slice(-12).reverse();
-  $("linerLog").innerHTML = rows.length
-    ? `<table class="log-table"><thead><tr><th>시각</th><th>API</th><th>결과</th><th>응답</th></tr></thead><tbody>${rows.map((u) => `<tr><td>${esc(new Date(u.at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }))}</td><td>${esc(API_LABEL[u.api] || u.api)}</td><td class="${u.ok ? "ok" : "bad"}">${u.ok ? "성공" : "실패 → 규칙 기반"}</td><td>${(u.ms / 1000).toFixed(1)}초</td></tr>`).join("")}</tbody></table>`
-    : `<div class="empty">${live ? "아직 호출이 없습니다. 상황을 말하거나 유형을 고르면 Liner Mark·Quick Answer·Search Agent가 호출됩니다." : "Liner 키가 설정되지 않아 호출하지 않습니다. 판정·기한·문서는 규칙 엔진으로 그대로 동작합니다."}</div>`;
+    ${h.latency_ms ? `<span>연결 확인 ${esc(h.latency_ms)}ms</span>` : ""}`;
 }
 function openLiner() {
   renderLinerModal();
@@ -739,7 +710,7 @@ function caseFileName(b, ext) {
 }
 function exportCase() {
   const b = S.board || {};
-  const payload = { format: "secuaid-case", v: 1, exported: new Date().toISOString(), id: (b.case || {}).id, title: (b.case || {}).title, state: S.state, usage: S.usage.slice(-60) };
+  const payload = { format: "secuaid-case", v: 1, exported: new Date().toISOString(), id: (b.case || {}).id, title: (b.case || {}).title, state: S.state };
   saveBlob(JSON.stringify(payload, null, 1), caseFileName(b, "json"), "application/json");
 }
 async function importCase(file) {
@@ -749,7 +720,7 @@ async function importCase(file) {
     if (!j || j.format !== "secuaid-case" || !j.state) throw new Error("시큐에이드 사건 파일이 아닙니다");
     const sid = "f" + Array.from(crypto.getRandomValues(new Uint8Array(8)), (x) => x.toString(16).padStart(2, "0")).join("");
     closeModals();
-    await resumeCase({ sid, state: j.state, usage: j.usage }, `사건 파일을 열었습니다 — '${j.title || "사건"}' (${(j.exported || "").slice(0, 10)} 저장본). 이 브라우저에도 보관됩니다.`);
+    await resumeCase({ sid, state: j.state }, `사건 파일을 열었습니다 — '${j.title || "사건"}' (${(j.exported || "").slice(0, 10)} 저장본). 이 브라우저에도 보관됩니다.`);
   } catch (e) {
     alert("사건 파일을 열지 못했습니다: " + e.message);
   }

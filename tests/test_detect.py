@@ -2,8 +2,8 @@
 import unittest
 from pathlib import Path
 
-from incident_note import ingest
-from incident_note.detect import detect
+from secuaid import ingest
+from secuaid.detect import detect
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 SCN1 = DATA / "scenarios" / "s1_bec_account_change"

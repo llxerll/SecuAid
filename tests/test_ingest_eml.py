@@ -3,7 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
-from incident_note import eml, ingest
+from secuaid import eml, ingest
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 SCN1 = DATA / "scenarios" / "s1_bec_account_change"
