@@ -151,3 +151,37 @@ class TestHttpStateless(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStaleInstanceCache(unittest.TestCase):
+    """서버리스의 다른 인스턴스에 옛 사건이 캐시돼 있어도 요청의 최신 state 토큰이 이긴다.
+
+    재현: 단계별 재생 3단계에서 시작한 법령 재확인이 재생이 끝난 뒤 병합될 때, 옛 사건(P2)을 가진 인스턴스로 가면
+    심각도가 P1→P2로 돌아가고 타임라인이 줄었다.
+    """
+
+    def test_late_law_merge_on_stale_instance_keeps_latest_case(self):
+        from secuaid.liner import LinerClient
+        c = app_module.app.test_client()
+        sid = c.post("/api/session", json={}).get_json()["session"]
+        r = c.post(f"/api/{sid}/replay/s1_bec_account_change", json={}).get_json()
+        state, snap = r["state"], None
+        for i, st in enumerate(r["steps"], 1):
+            d = c.post(f"/api/{sid}/message", json={"text": st["text"], "defer": True, "state": state}).get_json()
+            state = d["state"]
+            if i == 2:
+                snap = state
+        latest = d["board"]
+        self.assertEqual(latest["severity"]["level"], "P1")
+        app_module.SESSIONS[sid] = Agent.from_token(snap, client=LinerClient.from_env())   # 다른 인스턴스의 옛 캐시
+        merged = c.post(f"/api/{sid}/law/merge", json={"law_check": {"status": "offline"}, "state": state}).get_json()["board"]
+        self.assertEqual(merged["severity"]["level"], "P1")
+        self.assertEqual(len(merged["findings"]) + len(merged["events"]), len(latest["findings"]) + len(latest["events"]))
+
+    def test_cache_used_when_token_matches(self):
+        c = app_module.app.test_client()
+        d = c.post("/api/session", json={}).get_json()
+        sid = d["session"]
+        cached = app_module.SESSIONS[sid]
+        c.post(f"/api/{sid}/board", json={"state": d["state"]})
+        self.assertIs(app_module.SESSIONS[sid], cached)          # 같은 토큰이면 다시 복원하지 않는다
