@@ -317,7 +317,7 @@ async function newSession() {
   try { sessionStorage.removeItem(STORE_KEY); } catch (e) { /* noop */ }
   const data = await api("/api/session", {});
   S.sid = data.session; S.board = data.board;
-  $("vizFrame").srcdoc = "";
+  $("vizFrame").srcdoc = ""; S.vizLoadedFor = null;
   render(data.board);
   return data;
 }
@@ -825,7 +825,7 @@ function setVizTab(tab) {
 async function generateLinerViz(force = false) {
   if (S.vizLoading) return;
   if (S.viz && !force) { openViz(); return; }
-  if (force) { S.viz = null; clearTimeout(S.vizWatch); $("vizFrame").hidden = true; $("vizFrame").srcdoc = ""; $("vizWarn").classList.add("hidden"); $("vizUnsafe").classList.add("hidden"); }
+  if (force) { S.viz = null; clearTimeout(S.vizWatch); $("vizFrame").hidden = true; $("vizFrame").srcdoc = ""; S.vizLoadedFor = null; $("vizWarn").classList.add("hidden"); $("vizUnsafe").classList.add("hidden"); }
   S.vizLoading = true;
   $("vizIntro").classList.add("hidden");
   $("vizLoading").classList.remove("hidden");
@@ -1003,13 +1003,18 @@ window.addEventListener("message", (e) => {
 
 function openViz() {
   if (!S.viz) return;
-  setVizIsolation(true);
-  $("vizFrame").srcdoc = vizDoc(S.viz);
-  clearTimeout(S.vizWatch);
-  S.vizWatch = setTimeout(() => {               // 차트가 문서조차 다 읽지 못하면(네트워크 대기 등) 빈 화면 대신 안내
-    $("vizWarn").textContent = "차트가 그려지지 않으면 [다시 생성]을 누르거나 '대응 차트' 탭을 보세요";
-    $("vizWarn").classList.remove("hidden");
-  }, 8000);
+  // 차트는 한 번만 불러온다. 탭을 오가거나 창을 다시 열 때마다 srcdoc 를 다시 넣으면 차트를 처음부터 다시 불러오는데,
+  // 브라우저·네트워크에 따라 그 재로딩이 흰 화면으로 끝날 수 있었다 — 이미 그린 문서는 숨겼다 보여 주기만 한다.
+  if (S.vizLoadedFor !== S.viz) {
+    setVizIsolation(true);
+    $("vizFrame").srcdoc = vizDoc(S.viz);
+    S.vizLoadedFor = S.viz;
+    clearTimeout(S.vizWatch);
+    S.vizWatch = setTimeout(() => {             // 차트가 문서조차 다 읽지 못하면(네트워크 대기 등) 빈 화면 대신 안내
+      $("vizWarn").textContent = "차트가 그려지지 않으면 [다시 생성]을 누르거나 '대응 차트' 탭을 보세요";
+      $("vizWarn").classList.remove("hidden");
+    }, 8000);
+  }
   $("vizTheme").textContent = "Liner " + (((S.board || {}).viz || {}).theme || "Visualization");
   setVizTab("liner");
   $("vizModal").classList.remove("hidden");

@@ -302,6 +302,7 @@ class TestWebApp(unittest.TestCase):
         _, js = http("/static/app.js")
         self.assertIn('media="print" onload="this.media=\'all\'"', js)
         self.assertIn('addEventListener("DOMContentLoaded",report)', js)
+        self.assertIn("S.vizLoadedFor !== S.viz", js)          # 탭을 오갈 때 차트를 다시 불러오지 않는다
 
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
