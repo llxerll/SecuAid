@@ -51,10 +51,16 @@ def _token(body: dict | None = None) -> str:
 
 
 def _agent(sid: str, body: dict | None = None) -> Agent | None:
+    """사건 복원 — 요청에 실린 state 토큰이 기준이다.
+
+    서버리스에서는 인스턴스마다 메모리 캐시가 따로 있어, 어떤 인스턴스에는 예전 단계의 사건이 남아 있을 수 있다.
+    캐시는 '이 인스턴스가 마지막으로 내준 토큰'과 요청 토큰이 같을 때만 쓰고, 다르면 토큰으로 다시 복원한다
+    (예: 단계별 재생 중 늦게 끝난 법령 재확인 병합이 옛 사건으로 P1→P2·타임라인을 되돌리던 문제).
+    """
     agent = SESSIONS.get(sid)
-    if agent is not None:
-        return agent
     token = _token(body)
+    if agent is not None and (not token or token == getattr(agent, "last_token", None)):
+        return agent
     if not token:
         return None
     try:
@@ -70,7 +76,7 @@ def _ok(agent: Agent | None = None, payload: dict | None = None):
     data = dict(payload or {})
     if agent is not None:
         try:
-            data["state"] = agent.snapshot_token()
+            data["state"] = agent.last_token = agent.snapshot_token()
         except Exception:  # noqa: BLE001 - 직렬화 실패가 응답을 막지 않게
             pass
     return jsonify(data)
