@@ -811,6 +811,7 @@ function setVizTab(tab) {
   $("linerPane").hidden = native;
   $("vizPrint").classList.toggle("hidden", !native);
   $("vizTheme").classList.toggle("hidden", !!(native || !S.viz));
+  $("vizRegen").classList.toggle("hidden", !!(native || !S.viz));
   if (native) { $("vizWarn").classList.add("hidden"); $("vizUnsafe").classList.add("hidden"); }
   if (!native) {
     const has = !!S.viz;
@@ -821,9 +822,10 @@ function setVizTab(tab) {
   }
 }
 
-async function generateLinerViz() {
+async function generateLinerViz(force = false) {
   if (S.vizLoading) return;
-  if (S.viz) { openViz(); return; }
+  if (S.viz && !force) { openViz(); return; }
+  if (force) { S.viz = null; clearTimeout(S.vizWatch); $("vizFrame").hidden = true; $("vizFrame").srcdoc = ""; $("vizWarn").classList.add("hidden"); $("vizUnsafe").classList.add("hidden"); }
   S.vizLoading = true;
   $("vizIntro").classList.add("hidden");
   $("vizLoading").classList.remove("hidden");
@@ -833,7 +835,7 @@ async function generateLinerViz() {
   }, 1000);
   linerJob(+1);
   try {
-    const data = await withSession(() => post(`/api/${S.sid}/viz`, {}));
+    const data = await withSession(() => post(`/api/${S.sid}/viz`, force ? { force: true } : {}));
     S.board = data.board || S.board;
     render(S.board);
     if (data.html) { S.viz = data.html; openViz(); }
@@ -967,12 +969,17 @@ function M(){var d={};return{getItem:function(k){return Object.prototype.hasOwnP
 ["localStorage","sessionStorage"].forEach(function(n){try{window[n].getItem("_")}catch(e){try{Object.defineProperty(window,n,{value:M(),configurable:true})}catch(_){}}});
 try{document.cookie}catch(e){try{Object.defineProperty(document,"cookie",{get:function(){return""},set:function(){},configurable:true})}catch(_){}}
 var errs=[];window.addEventListener("error",function(ev){errs.push(String(ev.message||"error").slice(0,120))});
-window.addEventListener("load",function(){setTimeout(function(){var b=document.body;
+function report(){setTimeout(function(){var b=document.body;
 parent.postMessage({type:"secuaid-viz",errors:errs.slice(0,3),text:b?b.innerText.trim().length:0,
-nodes:b?b.querySelectorAll("svg,canvas,table,img").length:0},"*")},1500)});
+nodes:b?b.querySelectorAll("svg,canvas,table,img").length:0},"*")},1500)}
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",report);else report();
 })();<\/script>`;
 
 function vizDoc(html) {
+  // Liner 차트는 외부 CDN(jsdelivr)의 스타일시트·글꼴을 <head>에서 불러온다. 회사망 등에서 CDN이 느리거나 막히면
+  // 브라우저가 그 파일을 기다리느라 차트 전체를 그리지 않아 흰 화면이 된다 — 비동기로 바꿔 내장 색상으로 먼저 그린다.
+  html = String(html).replace(/<link\b([^>]*\brel=["']?stylesheet["']?[^>]*)>/gi, (tag, attrs) =>
+    /\bmedia=/i.test(attrs) || !/\bhref=["']?https?:/i.test(attrs) ? tag : `<link${attrs.replace(/\s*\/\s*$/, "")} media="print" onload="this.media='all'">`);
   const m = /<head[^>]*>/i.exec(html);
   return m ? html.slice(0, m.index + m[0].length) + VIZ_SHIM + html.slice(m.index + m[0].length) : VIZ_SHIM + html;
 }
@@ -985,6 +992,7 @@ function setVizIsolation(isolated) {
 
 window.addEventListener("message", (e) => {
   if (e.source !== $("vizFrame").contentWindow || !e.data || e.data.type !== "secuaid-viz") return;
+  clearTimeout(S.vizWatch);
   const broken = (e.data.errors || []).length > 0 || (!e.data.text && !e.data.nodes);
   if (broken && $("vizFrame").getAttribute("sandbox") === "allow-scripts") {
     $("vizWarn").textContent = "격리 상태에서 차트가 제대로 그려지지 않았습니다" + ((e.data.errors || [])[0] ? ` (${e.data.errors[0]})` : "");
@@ -997,6 +1005,11 @@ function openViz() {
   if (!S.viz) return;
   setVizIsolation(true);
   $("vizFrame").srcdoc = vizDoc(S.viz);
+  clearTimeout(S.vizWatch);
+  S.vizWatch = setTimeout(() => {               // 차트가 문서조차 다 읽지 못하면(네트워크 대기 등) 빈 화면 대신 안내
+    $("vizWarn").textContent = "차트가 그려지지 않으면 [다시 생성]을 누르거나 '대응 차트' 탭을 보세요";
+    $("vizWarn").classList.remove("hidden");
+  }, 8000);
   $("vizTheme").textContent = "Liner " + (((S.board || {}).viz || {}).theme || "Visualization");
   setVizTab("liner");
   $("vizModal").classList.remove("hidden");
@@ -1466,6 +1479,7 @@ $("helpClose").onclick = () => $("helpModal").classList.add("hidden");
 $("helpModal").addEventListener("click", (e) => { if (e.target.id === "helpModal") $("helpModal").classList.add("hidden"); });
 $("vizTabNative").onclick = () => setVizTab("native");
 $("vizTabLiner").onclick = () => { setVizTab("liner"); if (S.viz) openViz(); };
+$("vizRegen").onclick = () => generateLinerViz(true);
 $("vizGenerate").onclick = generateLinerViz;
 $("vizPrint").onclick = () => { document.body.classList.add("print-chart"); window.print(); setTimeout(() => document.body.classList.remove("print-chart"), 500); };
 $("vizUnsafe").onclick = () => {

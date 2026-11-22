@@ -295,6 +295,14 @@ class TestWebApp(unittest.TestCase):
         start_actions = html.split('class="start-actions"', 1)[1].split("</form>", 1)[0]
         self.assertNotIn("caseFileInput", start_actions)     # 로그 첨부 버튼과 섞이지 않게
 
+    def test_viz_does_not_block_on_cdn(self):
+        """Liner 차트의 외부 스타일시트가 느리거나 막혀도 흰 화면이 되지 않게 비동기로 바꾸고, [다시 생성]을 둔다."""
+        _, html = http("/")
+        self.assertIn('id="vizRegen"', html)
+        _, js = http("/static/app.js")
+        self.assertIn('media="print" onload="this.media=\'all\'"', js)
+        self.assertIn('addEventListener("DOMContentLoaded",report)', js)
+
     def test_unknown_session_returns_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             http("/api/nope/message", "POST", {"text": "hi"})
