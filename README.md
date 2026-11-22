@@ -139,9 +139,8 @@ SecuAid/
 │   ├─ log_rules*.json · reporting_rules.json · playbook_tree.json · templates.json
 │   └─ scenarios/              # 가상 시나리오 S1~S4
 ├─ tests/                      # 단위·시나리오 · HTTP E2E · DOCX · 라이브 Liner
-├─ docs/                       # 제출용 기획서 2쪽(HTML·PDF) · 상세 기획서 16쪽 · 요약 원고 · 5분 데모 대본
-├─ docs/ci-tests.yml.txt       # GitHub Actions 테스트 워크플로 — .github/workflows/tests.yml 로 옮기면 동작
-└─ scripts/make_pdf_v1.py      # 기획서 HTML → PDF
+├─ docs/                       # 제출용 기획서 2쪽(HTML 원본·PDF) · 5분 데모 영상 대본
+└─ scripts/make_pdf.py         # 기획서 HTML → PDF
 ```
 
 ---
@@ -162,12 +161,13 @@ SecuAid/
 ## 7. 테스트
 
 ```bash
-python -m pytest -q                                  # 단위·시나리오·DOCX (키 불필요)
-python -m tests.e2e_http                             # 실제 서버를 띄워 HTTP E2E
-LINER_LIVE=1 python -m pytest -q tests/test_live_liner.py   # Liner 실제 호출(크레딧 소모, 약 2분)
+python -m unittest discover -s tests -p "test_*.py"   # 단위·시나리오·DOCX (키 불필요, 추가 설치 없음)
+python -m tests.e2e_http                               # 실제 서버를 띄워 HTTP E2E
+LINER_LIVE=1 python -m unittest tests.test_live_liner  # Liner 실제 호출(키 필요, 크레딧 소모, 약 2분)
+# pytest가 있으면 python -m pytest -q 로도 같은 테스트가 돕니다
 ```
 
-**v0.13 실측:** 단위·시나리오 `155 passed, 9 skipped`(라이브 9건은 오프라인에서 skip) · HTTP E2E `25 OK` · Liner 라이브 `9 passed`.
+**v0.14 실측(2026-11-22):** 단위·시나리오 `171 tests OK (skipped=9)`(라이브 9건은 키 없이 skip) · HTTP E2E `26 OK` · Liner 라이브 `9 OK`.
 
 주요 검증 항목:
 
@@ -284,7 +284,6 @@ API 서버 (서울 리전: 규칙 엔진 · 권한)  ──  작업 큐 (Liner �
 | ① 소스코드 | **GitHub 공개 저장소** https://github.com/llxerll/SecuAid | 코드·이력에 API 키 없음(전체 이력 검사) · 키는 `.env`/환경변수 `LINER_API_KEY`로만 읽음 · README에 실행 방법·Liner 사용 기능 |
 | ② 데모 영상 (5분 이내) | YouTube **일부 공개** 링크 | 대본 `docs/데모_시나리오_5분.md` · 가상 데이터만 · 로그아웃(시크릿 창)에서 열리는지 확인 |
 | ③ 기획서 PDF (1~2쪽) | **`docs/시큐에이드_기획서_2p.pdf`** (2쪽) | 문제·해결·Liner 활용·확장성·기존/신규 구분 포함. 원본 `docs/기획서_2p.html` |
-| (참고) 상세 기획서 | `docs/시큐에이드_기획서_v1.2.pdf` (16쪽, v0.10 기준) | 제출 필수 아님 |
 
 **심사용 키로 실행하기:**
 
@@ -295,7 +294,7 @@ API 서버 (서울 리전: 규칙 엔진 · 권한)  ──  작업 큐 (Liner �
 
 키가 없어도 규칙 기반 모드로 실행됩니다. 오른쪽 위 상태 표시가 `Liner 연동`이면 키가 적용된 것입니다.
 
-기획서 PDF 다시 만들기: `pip install weasyprint` → `python scripts/make_pdf_v1.py docs/기획서_2p.html docs/시큐에이드_기획서_2p.pdf`(Pretendard 폰트는 CDN에서 자동으로 받습니다).
+기획서 PDF 다시 만들기: `pip install weasyprint` → `python scripts/make_pdf.py docs/기획서_2p.html docs/시큐에이드_기획서_2p.pdf`(Pretendard 폰트는 CDN에서 자동으로 받습니다).
 
 ---
 
@@ -303,7 +302,7 @@ API 서버 (서울 리전: 규칙 엔진 · 권한)  ──  작업 큐 (Liner �
 
 | 버전 | 주요 변경 |
 |---|---|
-| **v0.14** | 점검 반영: Liner AI 차트 질의에 법정 기한의 기산점('알게 된 때부터')·적용 요건·규칙 엔진 판정을 넣고 차트 위에 'AI 생성 — 법률 검토' 안내 상시 표시 · [문서] 탭에 만들지 않은 문서와 이유 표시 · 문서 개수 표기 정정. 제출 정리: 2쪽 기획서 PDF · README 기존/신규 구분과 제출물 표 · `.env`의 PORT가 무시되던 문제 수정 · 최종 소스 점검(문서 사실성·윤년 syslog·미사용 코드) · 첫 화면 아래 **[해커톤 버전과 상용화 설계]** 창(지금 vs 상용 비교 · 구조도 · 원칙 · 단계별 계획) · README 상용화 설계 절 · **사건 파일 열기**를 로그 첨부 옆에서 첫 화면 아래로 옮기고 열 수 있는 파일(.json) 설명 추가, 로그 파일을 고르면 첨부로 안내 |
+| **v0.14** | 제출 정리(불필요 파일 삭제: 보관용 CI 설정·v0.10 상세 기획서·1쪽 요약 원고) · 서버리스 인스턴스의 옛 캐시가 최신 상태를 덮어 단계별 재생 끝에 P1→P2로 돌아가던 문제 수정 · 점검 반영: Liner AI 차트 질의에 법정 기한의 기산점('알게 된 때부터')·적용 요건·규칙 엔진 판정을 넣고 차트 위에 'AI 생성 — 법률 검토' 안내 상시 표시 · [문서] 탭에 만들지 않은 문서와 이유 표시 · 문서 개수 표기 정정. 제출 정리: 2쪽 기획서 PDF · README 기존/신규 구분과 제출물 표 · `.env`의 PORT가 무시되던 문제 수정 · 최종 소스 점검(문서 사실성·윤년 syslog·미사용 코드) · 첫 화면 아래 **[해커톤 버전과 상용화 설계]** 창(지금 vs 상용 비교 · 구조도 · 원칙 · 단계별 계획) · README 상용화 설계 절 · **사건 파일 열기**를 로그 첨부 옆에서 첫 화면 아래로 옮기고 열 수 있는 파일(.json) 설명 추가, 로그 파일을 고르면 첨부로 안내 |
 | **v0.13** | **[Liner 연동] → Liner API 활용 창**(처리 흐름·원칙·API 5종 카드·안전장치). 저장소·서비스 주소를 **SecuAid**로 변경, Python 패키지 `incident_note` → `secuaid` |
 | **v0.12** | 실제 사용성: **진행 중인 사건 이어 하기**(localStorage 5건) · **사건 파일 저장·열기** · 할 일마다 **[어떻게?]**(내장 17종 + Quick Answer) · **저장·공유**(카톡 요약·마감 .ics·사건 파일) · 로고 = 첫 화면 |
 | **v0.11** | IT 지식 없이 끝까지: 사건 시작과 함께 도는 72시간 시계·[인지 시각 수정] · **확인이 필요해요**(버튼 답변·모르겠어요) · **지금 가장 먼저** CTA · 그림 사용법 |

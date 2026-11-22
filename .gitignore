@@ -9,7 +9,7 @@
 out/
 *.zip
 *.pdf
-!docs/인시던트노트_기획서_v1.0.pdf
+!docs/시큐에이드_기획서_2p.pdf
 playbook_source/
 __pycache__/
 *.pyc

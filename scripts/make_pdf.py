@@ -1,11 +1,12 @@
-"""기획서 v1.0 HTML → PDF 렌더러.
+"""기획서 HTML → A4 PDF 렌더러.
 
-디자인은 docs/기획서_v1.0.html(HTML+CSS)에 있고, 이 스크립트는 폰트를 준비해
+디자인은 docs/기획서_2p.html(HTML+CSS)에 있고, 이 스크립트는 Pretendard 폰트를 준비해
 WeasyPrint로 A4 PDF를 만든다. (Playwright/Chromium이 있으면 --engine chromium)
 
 사용:
-    python scripts/make_pdf_v1.py docs/기획서_v1.0.html out/인시던트노트_기획서_v1.0.pdf
-    python scripts/make_pdf_v1.py --font-dir ~/fonts/Pretendard ...
+    pip install weasyprint
+    python scripts/make_pdf.py docs/기획서_2p.html docs/시큐에이드_기획서_2p.pdf
+    python scripts/make_pdf.py --font-dir ~/fonts/Pretendard ...   # 폰트를 CDN에서 받지 못할 때
 """
 from __future__ import annotations
 
