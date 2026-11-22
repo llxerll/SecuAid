@@ -240,3 +240,33 @@ class TestDocsTellOnlyWhatHappened(unittest.TestCase):
 
         ag.set_action_done(ag.board()["actions"][0]["key"], True)
         self.assertIn("지급정지", ag.compose_docs(wait_law=False)["T6_exec5"]["body"])
+
+
+class TestLawWordingAndDocCount(unittest.TestCase):
+    """점검 반영 — AI 차트 질의의 기산점·요건, 만들지 않은 문서와 이유."""
+
+    def test_viz_query_states_awareness_start_and_requirements(self):
+        ag = agent()
+        ag.run_scenario("s1_bec_account_change")
+        q = ag.viz_query()
+        self.assertIn("알게 된 때부터' 24시간", q)
+        self.assertIn("시행령 제58조의2", q)
+        self.assertIn("1천명 이상", q)                       # 개인정보 72시간의 적용 요건
+        self.assertIn("이 사건 판정: 해당", q)               # 규칙 엔진 판정을 그대로 넘긴다
+        self.assertIn("법률 검토", q)
+
+    def test_viz_query_keeps_pending_status(self):
+        ag = agent()
+        ag.handle("거래처에서 저희 메일로 계좌번호가 바뀌었다고 전화 왔어요")
+        q = ag.viz_query()
+        self.assertIn("판단 보류", q)
+        self.assertNotIn("이 사건 판정: 해당", q)
+
+    def test_pending_documents_explain_missing_pi_docs(self):
+        ag = agent()
+        ag.handle("거래처에서 저희 메일로 계좌번호가 바뀌었다고 전화 왔어요. 이미 1,870만 원을 보냈대요")
+        docs = ag.compose_docs(wait_law=False)
+        self.assertNotIn("tpl_pi_leak_report", docs)        # 개인정보 판단 보류 → 신고서는 만들지 않는다(의도)
+        pend = {p["title"]: p["why"] for p in ag.board()["docs_pending"]}
+        self.assertIn("판단 보류", pend["개인정보 유출 신고서"])
+        self.assertNotIn("은행 사고 접수 요청", pend)         # 송금이 확인돼 은행 요청서는 만들었다

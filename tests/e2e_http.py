@@ -289,6 +289,7 @@ class TestWebApp(unittest.TestCase):
     def test_arch_and_case_file_in_html(self):
         """v0.14 — 상용화 설계 창, 사건 파일은 로그 첨부 옆이 아니라 첫 화면 아래에서 설명과 함께."""
         _, html = http("/")
+        self.assertIn('class="viz-ai-note"', html)            # AI 차트 위 상시 안내(점검 반영)
         for el in ('id="archModal"', 'id="archOpen"', 'id="archFromHelp"', "상용화", 'for="caseFileInput"', "시큐에이드 사건 파일(.json)"):
             self.assertIn(el, html)
         start_actions = html.split('class="start-actions"', 1)[1].split("</form>", 1)[0]

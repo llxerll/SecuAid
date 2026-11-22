@@ -727,6 +727,10 @@ body[data-stage="case"] .start-only { display: none !important; }
   .arch-box { max-height: 92vh; border-radius: 14px 14px 0 0; }
 }
 
+.viz-ai-note { margin: 0; padding: 8px 14px; font-size: 12.5px; line-height: 1.5; color: var(--warn); background: var(--warn-bg); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.docs-pending { margin: 10px 16px 14px; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 10px; font-size: 12.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
+.docs-pending ul { margin: 0; padding-left: 18px; }
+.docs-pending li span { font-weight: 600; }
 @media print {
   body.print-chart > *:not(#vizModal) { display: none !important; }
   body.print-chart #vizModal { position: static; background: none; padding: 0; }

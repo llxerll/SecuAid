@@ -317,6 +317,32 @@ def _blank_label(name: str) -> str:
     return f"〔{UNKNOWN}: {name}〕"
 
 
+def pending_documents(case: Case, cls: Classification) -> list[dict]:
+    """이번 사건에서 만들지 않은 문서와 그 이유 — 화면이 '왜 이 문서가 없지?'에 답하게 한다.
+
+    개인정보 유출 신고서·통지문은 기한 판정이 '해당/검토'일 때만 만든다(판단 보류면 만들지 않는다).
+    """
+    out: list[dict] = []
+    mail_types = cls.type not in ("ransom", "lookalike", "spoof")
+    if mail_types and case.value("transfer_status") not in ("done", "pending"):
+        out.append({"title": "은행 사고 접수 요청", "why": "송금(이체)이 확인되면 추가됩니다"})
+    if cls.type != "ransom" and case.value("insurance") is not True:
+        out.append({"title": "보험사 사고 통지", "why": "사이버 보험에 가입돼 있다고 알려 주면 추가됩니다"})
+    ddl = {d.rule_id: d for d in deadline_mod.compute(case)}
+    pending_why = {
+        # 신고는 1천명 이상·민감/고유식별정보·외부 불법 접근 중 하나일 때, 통지는 유출(가능성)만으로 대상이다.
+        "R_PI_LEAK_REPORT": "개인정보 유출 여부와 요건(1천명 이상·민감정보·외부 불법 접근)이 확인되면 추가됩니다 — 지금 판단 보류",
+        "R_PI_NOTICE": "개인정보 유출(가능성)이 확인되면 추가됩니다 — 지금 판단 보류",
+    }
+    for rid, title in (("R_PI_LEAK_REPORT", "개인정보 유출 신고서"), ("R_PI_NOTICE", "정보주체 통지문")):
+        d = ddl.get(rid)
+        if not d or d.status in ("해당", "검토"):
+            continue
+        why = pending_why[rid] if d.status == "판단 보류" else "현재 사실로는 신고·통지 대상이 아니어서 만들지 않았습니다"
+        out.append({"title": title, "why": why})
+    return out
+
+
 def _preserved_line(case: Case) -> str:
     """보존 중인 증거 — 실제로 들어온 로그 종류와 [증거 확보]에서 '확보함'으로 표시한 것만."""
     from . import evidence as evidence_mod

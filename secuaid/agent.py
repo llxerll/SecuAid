@@ -795,12 +795,34 @@ class Agent:
         self.case.guides[cat.id] = entry
         return entry
 
+    # 법정 기한 문구 — AI 차트가 기산점·요건을 일반화하지 않도록 질의에 그대로 싣는다(규칙 엔진과 같은 기준).
+    VIZ_LAW = {
+        "R_INTRUSION_REPORT": "침해사고 최초신고: 침해사고 발생 사실을 '알게 된 때부터' 24시간 이내 "
+                              "(정보통신망법 제48조의3 제1항, 시행령 제58조의2) — 정보통신서비스 제공자에 해당할 때",
+        "R_PI_LEAK_REPORT": "개인정보 유출 신고: 유출등을 '알게 된 때부터' 72시간 이내 — 1천명 이상 유출, "
+                            "민감정보·고유식별정보 유출, 외부 불법 접근에 의한 유출 중 하나에 해당할 때(개인정보 보호법 제34조, 시행령 제40조)",
+        "R_PI_NOTICE": "정보주체 통지: 유출등을 '알게 된 때부터' 72시간 이내(개인정보 보호법 제34조, 시행령 제39조)",
+    }
+
     def viz_query(self) -> str:
         cat = category_mod.get(self.case.value("category"))
         org = self.case.value("org_name") or "조직"
         subject = cat.name if cat else self.cls.label
-        return (f"{org}의 {subject} 사고 대응: 0~10분, 10~60분, 1~4시간, 4~24시간, 24~72시간 조치와 "
-                "정보통신망법 24시간·개인정보보호법 72시간 신고 기한을 한 장으로 정리")
+        aware = kst_label(self.case.aware_at) if self.case.aware_at else "미확인"
+        items = (getattr(self, "deadlines", None) or {}).get("items") or []
+        law = []
+        for d in items:
+            rule = self.VIZ_LAW.get(d.get("rule_id"))
+            if rule:
+                due = d.get("due") or "마감 미확인"
+                law.append(f"- {rule} → 이 사건 판정: {d.get('status')} · 마감 {due}")
+        law_txt = "\n".join(law) or "- 법정 신고 대상 여부: 판단 보류(사실관계 확인 필요)"
+        return (f"{org}의 {subject} 사고 대응 차트. 인지 시각(처음 안 시각): {aware}.\n"
+                "가로축: 인지 후 0~10분, 10~60분, 1~4시간, 4~24시간, 24~72시간 구간별 조치.\n"
+                "법정 기한은 아래 문구와 판정을 그대로 쓰세요. 기산점은 '사고 발생 후'가 아니라 '알게 된 때부터'입니다. "
+                "판정이 '판단 보류'·'검토'인 기한은 '해당 시'로 표시하고 확정처럼 쓰지 마세요. 적용 요건을 함께 적으세요.\n"
+                f"{law_txt}\n"
+                "차트 하단에 'AI 생성 요약 — 신고 대상·기한은 담당자·법률 검토로 확정'이라고 표시하세요.")
 
     def visualize(self, *, force: bool = False) -> dict:
         """사건 보드 시각화 — 실패·오프라인이면 깨지지 않는 폴백 정보를 돌려준다."""
@@ -1008,6 +1030,7 @@ class Agent:
             "severity": self.sev.to_dict(),
             "severity_history": self.sev_history[-6:],
             "events": self.case.events,
+            "docs_pending": docs_mod.pending_documents(self.case, self.cls) if self.case.docs else [],
             "howto": {h["id"]: {k: v for k, v in h.items() if k != "match"}
                       for h in playbook.howto_items() if any(a.get("howto") == h["id"] for a in self.actions)},
             "evidence": evidence_mod.view(self.case),

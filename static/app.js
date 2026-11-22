@@ -1288,6 +1288,12 @@ function renderDocs(b) {
         <button type="button" data-docx="${esc(d.id)}">DOCX</button>
       </span>
     </div>`).join("") || `<div class="empty">[문서 초안 생성]을 누르면 통지문·신고서가 만들어집니다. 모르는 칸은 〔미확인〕으로 남깁니다.</div>`;
+  const pend = docs.length ? (b.docs_pending || []) : [];
+  if (pend.length) {
+    $("docs").insertAdjacentHTML("beforeend", `<div class="docs-pending"><b>이 사건에 해당하는 문서만 만듭니다 — 아직 없는 문서</b>
+      <ul>${pend.map((p) => `<li><span>${esc(p.title)}</span> — ${esc(p.why)}</li>`).join("")}</ul>
+      <span class="hint">사실이 확인되면 [문서 초안 생성]을 다시 누르세요.</span></div>`);
+  }
   $("zipAll").classList.toggle("hidden", !docs.length);
   $("docs").querySelectorAll("button[data-doc]").forEach((x) => { x.onclick = () => previewDoc(x.dataset.doc); });
   $("docs").querySelectorAll("button[data-md]").forEach((x) => { x.onclick = () => downloadFile(`/api/${S.sid}/download/${x.dataset.md}`, `${x.dataset.md}.md`); });
