@@ -8,31 +8,31 @@
 @font-face { font-family:"PF"; src:url("fonts/Pretendard-Medium.woff2"); font-weight:500; }
 @font-face { font-family:"PF"; src:url("fonts/Pretendard-SemiBold.woff2"); font-weight:600; }
 @font-face { font-family:"PF"; src:url("fonts/Pretendard-Bold.woff2"); font-weight:700; }
-@page { size:A4; margin:13mm 14mm 12mm;
+@page { size:A4; margin:12mm 15mm 11mm;
   @bottom-right { content: counter(page) " / " counter(pages); font-family:"PF"; font-size:7.5pt; color:#8b95a5; } }
 * { box-sizing:border-box; }
-body { font-family:"PF"; font-size:8.9pt; line-height:1.5; color:#1b2230; margin:0; word-break:keep-all; }
-h1 { font-size:17pt; margin:0; letter-spacing:-0.3pt; }
+body { font-family:"PF"; font-size:9pt; line-height:1.56; color:#1b2230; margin:0; word-break:keep-all; }
+h1 { font-size:17.5pt; margin:0; letter-spacing:-0.3pt; }
 h1 small { font-size:9.5pt; font-weight:500; color:#5b6474; margin-left:6px; }
-.sub { margin:2px 0 6px; font-size:9.6pt; font-weight:600; color:#c2410c; }
-.meta { font-size:7.8pt; color:#5b6474; border-top:1.5px solid #1b2230; border-bottom:1px solid #d9dde3; padding:4px 0; margin-bottom:8px; }
+.sub { margin:4px 0 8px; font-size:9.8pt; font-weight:600; color:#c2410c; }
+.meta { font-size:8pt; color:#5b6474; border-top:1.5px solid #1b2230; border-bottom:1px solid #d9dde3; padding:6px 0; margin-bottom:12px; }
 .meta b { color:#1b2230; }
-h2 { font-size:10.6pt; margin:9px 0 4px; padding-left:7px; border-left:3px solid #c2410c; }
-p { margin:3px 0; }
-ul, ol { margin:2px 0 3px; padding-left:15px; }
-li { margin:1px 0; }
-table { width:100%; border-collapse:collapse; font-size:8pt; margin:3px 0; }
-th, td { border:1px solid #d9dde3; padding:3px 5px; vertical-align:top; text-align:left; }
+h2 { font-size:10.8pt; margin:11px 0 5px; padding-left:8px; border-left:3.5px solid #c2410c; }
+p { margin:5px 0; }
+ul, ol { margin:4px 0 6px; padding-left:16px; }
+li { margin:2.5px 0; }
+table { width:100%; border-collapse:collapse; font-size:8.1pt; margin:6px 0; }
+th, td { border:1px solid #d9dde3; padding:4.5px 6.5px; vertical-align:top; text-align:left; line-height:1.45; }
 th { background:#f3f4f6; font-weight:600; }
-code { font-size:7.4pt; background:#f3f4f6; padding:0 2px; border-radius:2px; }
-.box { border:1px solid #d9dde3; border-radius:5px; padding:5px 8px; margin:4px 0; background:#fafaf8; }
-.flow { display:flex; gap:4px; margin:4px 0; }
-.flow div { flex:1; border:1px solid #d9dde3; border-radius:4px; padding:3px 5px; font-size:7.6pt; background:#fff; }
-.flow b { display:block; font-size:8pt; }
-.two { display:flex; gap:10px; }
+code { font-size:7.4pt; background:#f3f4f6; padding:0 3px; border-radius:2px; }
+.box { border:1px solid #d9dde3; border-radius:6px; padding:7px 10px; margin:8px 0; background:#fafaf8; line-height:1.52; }
+.flow { display:flex; gap:6px; margin:7px 0; }
+.flow div { flex:1; border:1px solid #d9dde3; border-radius:4px; padding:5px 6px; font-size:7.7pt; background:#fff; line-height:1.45; }
+.flow b { display:block; font-size:8.1pt; margin-bottom:2px; }
+.two { display:flex; gap:14px; margin-bottom:6px; }
 .two > div { flex:1; }
 .em { color:#c2410c; font-weight:600; }
-.note { font-size:7.4pt; color:#5b6474; }
+.note { font-size:7.6pt; color:#5b6474; margin-top:5px; line-height:1.5; }
 .pb { page-break-before:always; }
 </style>
 </head>
@@ -49,7 +49,7 @@ code { font-size:7.4pt; background:#f3f4f6; padding:0 2px; border-radius:2px; }
   <li><b>돈과 계정을 늦게 막는다</b> — "원인부터 알아보자"며 은행 지급정지 요청을 미룹니다. 송금 사기는 이체 직후 몇 시간이 회수를 가릅니다.</li>
   <li><b>암호만 바꾸고 끝낸다</b> — 세션·앱 비밀번호·전달 규칙이 남아 공격자가 계속 머뭅니다.</li>
   <li><b>당황해서 증거를 지운다</b> — 의심 규칙 삭제·PC 포맷으로 유출 범위를 입증할 수 없게 됩니다.</li>
-  <li><b>신고 대상과 기한을 모른다</b> — 정보통신망법 침해사고 신고 <span class="em">24시간</span>, 개인정보 유출 신고·통지 <span class="em">72시간</span>. 기한은 "처음 안 시각"부터 흐릅니다.</li>
+  <li><b>신고 대상과 기한을 모른다</b> — 기한은 주체와 유형에 따라 다릅니다. 정보통신서비스 제공자의 침해사고 신고는 <span class="em">24시간</span>(정보통신망법), 개인정보 유출 통지는 <span class="em">72시간</span>, 유출 신고는 1천 명 이상·민감/고유식별정보·외부 불법 접근 등 해당 시 <span class="em">72시간</span>(개인정보 보호법). 기한은 "처음 안 시각"부터 흐릅니다.</li>
   <li><b>로그가 뭔지 모른다</b> — 증거를 어디서 어떻게 확보하는지, 업체에 무엇을 요청해야 하는지 모릅니다.</li>
 </ol>
 <p><b>얼마나 불편한가</b> — 가이드와 체크리스트는 이미 있지만 수십 쪽의 "읽는 문서"입니다. 사고 당일 당황한 사람은 자기 상황에 맞는 줄을 찾지 못하고, 기한이 흐르는 동안 무엇부터 할지 정하지 못합니다. 신고서·통지문도 백지에서 씁니다.</p>
@@ -69,6 +69,7 @@ code { font-size:7.4pt; background:#f3f4f6; padding:0 2px; border-radius:2px; }
 </ul>
 <p class="note">데모 데이터는 모두 가상입니다(<code>.example</code> 도메인, RFC 5737 IP, 가상 회사·은행·계좌). 시나리오 4종: 계정 탈취→계좌 변경 사칭(송금 후 P1 격상) · 유사 도메인 사칭(신고 비해당 판별) · 서버 root 탈취(범위 밖 — 아는 척하지 않음) · 랜섬웨어(몸값 지불 금지).</p>
 
+<div class="pb"></div>
 <h2>3. Liner API 활용 방식 — 5종</h2>
 <p><b>판단은 규칙 엔진이, 말과 근거는 Liner가, 결정과 제출은 사람이.</b> 기한처럼 틀리면 안 되는 계산은 결정적 코드(같은 입력 → 같은 결과)로 고정하고, Liner는 그 결과를 사람이 이해하고 확인하게 만듭니다. 판정은 즉시 나오고 Liner는 뒤따라 병렬로 붙으며, Liner가 늦거나 실패해도 판정·기한·문서는 그대로 동작합니다.</p>
 <table>
@@ -81,7 +82,6 @@ code { font-size:7.4pt; background:#f3f4f6; padding:0 2px; border-radius:2px; }
 </table>
 <p class="note">Liner로 보내기 전 주민번호·카드·전화·계좌·이메일·IP를 가리고 응답에서 복원합니다. 실측(2026-11-21): Mark 1.6~2.8초 · Quick Answer 2.2~3.6초 · Search 1.1~1.7초 · Search Agent 약 24초. 화면 오른쪽 위 [Liner 연동]에서 같은 설명을 볼 수 있습니다.</p>
 
-<div class="pb"></div>
 <h2>4. 다른 조직·직무로의 확장 가능성</h2>
 <div class="two">
   <div>
